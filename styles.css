@@ -47,7 +47,7 @@ input[type="text"], input[type="password"], input[type="search"], input[type="nu
 /* ---------- Operator layout ---------- */
 .app {
   display: grid;
-  grid-template-columns: var(--col-lib, 340px) 6px var(--col-set, 300px) 6px minmax(0, 1fr);
+  grid-template-columns: var(--col-lib, 1fr) 6px var(--col-set, 1fr) 6px minmax(0, 1fr);
   grid-template-rows: 48px minmax(0, 1fr);
   height: 100%;
 }

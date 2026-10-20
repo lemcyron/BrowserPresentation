@@ -1092,23 +1092,33 @@ function storeEsv() {
 }
 
 // ---------- Resizable columns ----------
-const LAYOUT_KEY = "presentation-layout-v1";
-const MIN_COL = 200;      // narrowest library / set list column (shrinks on small windows, see fitCols)
-const MIN_COL_FLOOR = 140; // absolute narrowest side column on very small windows
-const MIN_PREVIEW = 480;  // narrowest preview column (6 control buttons + 16:9 screen)
+// Column widths are stored as fractions of the window width (library and set list; the preview takes the
+// rest), so the layout scales with the window. By default each of the three columns is 1/3.
+const LAYOUT_KEY = "presentation-layout-v2";
+const MIN_COL = 160;      // narrowest column in px
 const HANDLE_W = 6;
-const DEFAULT_COLS = { lib: 340, set: 300 };
+const DEFAULT_COLS = { lib: 1 / 3, set: 1 / 3 };
 let cols = { ...DEFAULT_COLS };
 
-// Keeps both columns inside the window while leaving room for the preview. Does not change `cols`.
-// Small CSS-pixel widths are common on Linux (HiDPI scaling, small default browser windows), so the
-// side columns give way before the preview does.
-function fitCols(c) {
-  const total = document.documentElement.clientWidth - 2 * HANDLE_W;
-  const minCol = Math.max(MIN_COL_FLOOR, Math.min(MIN_COL, (total - MIN_PREVIEW) / 2));
-  const lib = Math.max(minCol, Math.min(c.lib, total - minCol - MIN_PREVIEW));
-  const set = Math.max(minCol, Math.min(c.set, total - lib - MIN_PREVIEW));
+function totalWidth() { return document.documentElement.clientWidth - 2 * HANDLE_W; }
+
+// Keeps every column at least MIN_COL wide (px in, px out).
+function clampPx(px) {
+  const total = totalWidth();
+  const lib = Math.max(MIN_COL, Math.min(px.lib, total - 2 * MIN_COL));
+  const set = Math.max(MIN_COL, Math.min(px.set, total - lib - MIN_COL));
   return { lib, set };
+}
+
+// Current column widths in px for the current window size. Does not change `cols`.
+function fitCols(c) {
+  const total = totalWidth();
+  return clampPx({ lib: c.lib * total, set: c.set * total });
+}
+
+function pxToCols(px) {
+  const total = totalWidth();
+  return { lib: px.lib / total, set: px.set / total };
 }
 
 function applyCols() {
@@ -1128,20 +1138,20 @@ function saveCols() {
 function loadCols() {
   try {
     const raw = JSON.parse(localStorage.getItem(LAYOUT_KEY));
-    if (raw && Number.isFinite(raw.lib) && Number.isFinite(raw.set)) {
-      cols = { lib: Math.max(MIN_COL, raw.lib), set: Math.max(MIN_COL, raw.set) };
+    if (raw && Number.isFinite(raw.lib) && Number.isFinite(raw.set) && raw.lib > 0 && raw.set > 0 && raw.lib + raw.set < 1) {
+      cols = { lib: raw.lib, set: raw.set };
     }
   } catch { /* use defaults */ }
 }
 
 function setupResizer(handle, key) {
   let startX = 0;
-  let startW = 0;
+  let startPx = { lib: 0, set: 0 };
 
   handle.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     startX = e.clientX;
-    startW = fitCols(cols)[key];
+    startPx = fitCols(cols);
     handle.setPointerCapture(e.pointerId);
     handle.classList.add("dragging");
     document.body.classList.add("resizing");
@@ -1150,8 +1160,7 @@ function setupResizer(handle, key) {
 
   handle.addEventListener("pointermove", (e) => {
     if (!handle.hasPointerCapture(e.pointerId)) return;
-    cols[key] = startW + (e.clientX - startX);
-    cols = fitCols(cols);
+    cols = pxToCols(clampPx({ ...startPx, [key]: startPx[key] + (e.clientX - startX) }));
     applyCols();
   });
 
@@ -1166,8 +1175,8 @@ function setupResizer(handle, key) {
   handle.addEventListener("pointercancel", end);
 
   handle.addEventListener("dblclick", () => {
-    cols[key] = DEFAULT_COLS[key];
-    cols = fitCols(cols);
+    cols = { ...cols, [key]: DEFAULT_COLS[key] };
+    cols = pxToCols(fitCols(cols));
     applyCols();
     saveCols();
   });
@@ -1175,12 +1184,13 @@ function setupResizer(handle, key) {
   // Keyboard: arrow keys resize (Shift = bigger steps), Home resets.
   handle.addEventListener("keydown", (e) => {
     const step = e.shiftKey ? 64 : 16;
-    if (e.key === "ArrowLeft") cols[key] = fitCols(cols)[key] - step;
-    else if (e.key === "ArrowRight") cols[key] = fitCols(cols)[key] + step;
-    else if (e.key === "Home") cols[key] = DEFAULT_COLS[key];
+    const px = fitCols(cols);
+    if (e.key === "ArrowLeft") px[key] -= step;
+    else if (e.key === "ArrowRight") px[key] += step;
+    else if (e.key === "Home") px[key] = DEFAULT_COLS[key] * totalWidth();
     else return;
     e.preventDefault();
-    cols = fitCols(cols);
+    cols = pxToCols(clampPx(px));
     applyCols();
     saveCols();
   });
