@@ -51,4 +51,4 @@ echo
 ( sleep 2; open_browser ) &
 
 # Bound to localhost only, so it is not reachable from other machines.
-exec "$PY" -m http.server "$PORT" --bind 127.0.0.1
+exec "$PY" server.py

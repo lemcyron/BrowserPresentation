@@ -10,7 +10,6 @@ const AUDIOSET_KEY = "presentation-audioset-v1";
 const CUSTOM_KEY = "presentation-custom-v1";
 const ESV_KEY_STORAGE = "presentation-esv-key-v1"; // API key entered by the user; never stored in config.json
 const DRIVE_KEY_STORAGE = "presentation-drive-key-v1"; // Google API key for the Drive folder; never stored in config.json
-const ESV_URL = "https://api.esv.org/v3/passage/text/";
 const ESV_REF_RE = /^[A-Za-z0-9\s:;,.\-\u2013]+$/;
 const MAX_SETLIST = 500;
 const MAX_CUSTOM = 200;
@@ -1035,26 +1034,23 @@ async function fetchEsv() {
   if (!q || q.length > 200 || !ESV_REF_RE.test(q)) { setStatus("Enter a valid reference, e.g. John 3:16-18"); return; }
   const perSlide = Math.max(1, Math.min(10, parseInt($("esv-per").value, 10) || 2));
 
-  const params = new URLSearchParams({
-    q,
-    "include-headings": "false",
-    "include-footnotes": "false",
-    "include-verse-numbers": "true",
-    "include-short-copyright": "false",
-    "include-passage-references": "false",
-  });
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000);
   setStatus("Fetching passage…");
   try {
-    const res = await fetch(`${ESV_URL}?${params}`, {
-      headers: { Authorization: `Token ${esvKey}` },
+    const res = await fetch("/api/esv", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ q, key: esvKey, perSlide }),
       signal: ctrl.signal,
       cache: "no-store",
     });
-    if (res.status === 401 || res.status === 403) throw new Error("ESV API key was rejected");
-    if (!res.ok) throw new Error(`ESV request failed (${res.status})`);
     const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error || `ESV request failed (${res.status})`;
+      if (res.status === 401 || res.status === 403) throw new Error("ESV API key was rejected");
+      throw new Error(msg);
+    }
     const passages = Array.isArray(data.passages) ? data.passages.filter((p) => typeof p === "string" && p.trim()) : [];
     if (!passages.length) throw new Error("No passage found for that reference");
 

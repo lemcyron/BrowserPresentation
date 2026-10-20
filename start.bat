@@ -24,7 +24,7 @@ rem Open the browser after a short delay so the server is ready.
 start "" /b powershell -NoProfile -Command "Start-Sleep -Seconds 2; Start-Process '%URL%'"
 
 rem Bound to localhost only, so it is not reachable from other machines.
-%PY% -m http.server %PORT% --bind 127.0.0.1
+%PY% server.py
 goto :eof
 
 :already
