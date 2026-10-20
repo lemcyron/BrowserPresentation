@@ -1093,17 +1093,21 @@ function storeEsv() {
 
 // ---------- Resizable columns ----------
 const LAYOUT_KEY = "presentation-layout-v1";
-const MIN_COL = 200;      // narrowest library / set list column
-const MIN_PREVIEW = 320;  // narrowest preview column
+const MIN_COL = 200;      // narrowest library / set list column (shrinks on small windows, see fitCols)
+const MIN_COL_FLOOR = 140; // absolute narrowest side column on very small windows
+const MIN_PREVIEW = 480;  // narrowest preview column (6 control buttons + 16:9 screen)
 const HANDLE_W = 6;
 const DEFAULT_COLS = { lib: 340, set: 300 };
 let cols = { ...DEFAULT_COLS };
 
 // Keeps both columns inside the window while leaving room for the preview. Does not change `cols`.
+// Small CSS-pixel widths are common on Linux (HiDPI scaling, small default browser windows), so the
+// side columns give way before the preview does.
 function fitCols(c) {
-  const total = window.innerWidth - 2 * HANDLE_W;
-  const lib = Math.max(MIN_COL, Math.min(c.lib, total - MIN_COL - MIN_PREVIEW));
-  const set = Math.max(MIN_COL, Math.min(c.set, total - lib - MIN_PREVIEW));
+  const total = document.documentElement.clientWidth - 2 * HANDLE_W;
+  const minCol = Math.max(MIN_COL_FLOOR, Math.min(MIN_COL, (total - MIN_PREVIEW) / 2));
+  const lib = Math.max(minCol, Math.min(c.lib, total - minCol - MIN_PREVIEW));
+  const set = Math.max(minCol, Math.min(c.set, total - lib - MIN_PREVIEW));
   return { lib, set };
 }
 
