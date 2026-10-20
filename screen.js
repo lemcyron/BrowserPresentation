@@ -29,13 +29,13 @@ export function videoCommand(screen, cmd) {
   else if (cmd === "restart") { v.currentTime = 0; v.play().catch(() => {}); }
 }
 
-// Called after a click/key press on the output window, when sound was blocked by the browser.
+// Called after a click/key press, when sound was blocked by the browser. Does nothing otherwise.
 export function unlockSound(screen) {
   const v = getVideo(screen);
-  if (!v) return;
+  if (!v || !v._soundBlocked) return;
   v._soundBlocked = false;
-  v.muted = Boolean(v._wantMuted);
-  v.play().catch(() => {});
+  v.muted = Boolean(v._wantMuted) || Boolean(v._forceMute);
+  if (!v._blankPaused) v.play().catch(() => {});
 }
 
 function startVideo(v, opts) {
@@ -72,7 +72,8 @@ async function syncMedia(screen, state, opts, token) {
       el = document.createElement("video");
       el.playsInline = true;
       el.preload = "auto";
-      el.muted = Boolean(opts.preview) || Boolean(state.muted);
+      el._forceMute = Boolean(opts.mute);
+      el.muted = el._forceMute || Boolean(state.muted);
       el._wantMuted = Boolean(state.muted);
       el._blankPaused = Boolean(state.blank);
       el.src = url;
@@ -92,12 +93,14 @@ async function syncMedia(screen, state, opts, token) {
   const v = getVideo(screen);
   if (!v) return;
   v._wantMuted = Boolean(state.muted);
-  if (!opts.preview) v.muted = v._wantMuted || Boolean(v._soundBlocked);
+  v._forceMute = Boolean(opts.mute);
+  v.muted = v._wantMuted || v._forceMute || Boolean(v._soundBlocked);
   if (state.blank) {
     if (!v.paused) { v.pause(); v._blankPaused = true; }
   } else if (v._blankPaused) {
     v._blankPaused = false;
-    v.play().catch(() => {});
+    // Same path as a fresh start: if the browser blocks sound, play silently and show the "click once" hint.
+    if (!state.paused) startVideo(v, opts);
   }
 }
 
@@ -120,8 +123,9 @@ async function syncBlankImage(screen, theme) {
   if (url) img.src = url; else img.remove();
 }
 
-// opts: { preview: true } for the operator preview (video is always silent there);
-//       { onSoundBlocked } is called on the output window when the browser blocks sound.
+// opts: { mute: true } keeps the video silent (the output window is always silent; the operator preview
+//       plays the sound, because only a window the operator has clicked is allowed to make sound);
+//       { onSoundBlocked } is called when the browser blocks sound.
 export function renderSlide(screen, state, theme, opts = {}) {
   const token = (screen._renderToken = (screen._renderToken || 0) + 1);
   syncMedia(screen, state, opts, token).catch((err) => console.error(err));

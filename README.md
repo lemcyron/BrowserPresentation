@@ -66,7 +66,7 @@ In the **Custom slide** editor, use the **Video or PowerPoint** file picker.
 - The video becomes one slide. Any text you type is drawn over it.
 - Under the preview, **Pause/Play** and **Restart** control it. Keys: `K` pause/play, `S` restart.
 - Pressing `.` (blank) pauses the video and hides it; un-blanking resumes it.
-- Sound plays on the **output window** only; the operator preview is always silent. Browsers block sound until the window has been clicked once, so the first time the output window shows "Click this window once to turn on video sound". Tick **Mute** in the editor for silent clips.
+- Video sound plays from the **operator window** (the preview), not the output window. Browsers block sound in a window nobody has clicked, so the output window is always silent and needs no click. Use the computer's speakers, or make sure the sound goes to the same device as the projector. The preview is muted while **Live** is off. Sound and picture are two separate players, so they can drift apart slightly. Tick **Mute** in the editor for silent clips.
 
 **PowerPoint** (`.pptx` or `.ppsx`, up to 200 MB and 300 slides)
 - Each PowerPoint slide becomes one slide: its text, over its largest picture.
@@ -120,8 +120,8 @@ Settings are hidden in a drawer. Click the burger button (three lines) at the to
 
 ## Controls
 
-`→` / `Space` next slide · `←` previous · `.` blank screen · `F` freeze output · `N` / `P` next / previous set list song · `K` pause/play video · `S` restart video. Settings are stored in browser localStorage.
+`→` / `Space` next slide · `←` previous · `.` blank screen · `F` Live on/off (when off, the output window is blank while the preview keeps working) · `N` / `P` next / previous set list song · `K` pause/play video · `S` restart video. Settings are stored in browser localStorage.
 
 **App keys:** `R` reload the sheet · `O` open the output window · `I` open the Settings menu. Each key is shown next to its button, for example "Reload sheet (R)". They are ignored while you are typing in a field, while Settings is open, and when Ctrl, Cmd or Alt is held.
 
-**Jump to a field** (the cursor goes straight in, and the letter is not typed): `L` library search · `A` Google Drive audio search · `C` Custom slide name (opens the editor) · `B` Bible verse reference (opens the editor). The key is shown next to each label, for example "Custom slide (C)", the same way as "Freeze output (F)". Press `Esc` to fold the Custom slide, Bible verses and Google Drive audio boxes (and leave the field you are typing in) so the other keys work again; if Settings is open, `Esc` closes it first. These keys are ignored while you are typing in a field, while Settings is open, and when Ctrl, Cmd or Alt is held.
+**Jump to a field** (the cursor goes straight in, and the letter is not typed): `L` library search · `A` Google Drive audio search · `C` Custom slide name (opens the editor) · `B` Bible verse reference (opens the editor). The key is shown next to each label, for example "Custom slide (C)", the same way as "Live (F)". Press `Esc` to fold the Custom slide, Bible verses and Google Drive audio boxes (and leave the field you are typing in) so the other keys work again; if Settings is open, `Esc` closes it first. These keys are ignored while you are typing in a field, while Settings is open, and when Ctrl, Cmd or Alt is held.

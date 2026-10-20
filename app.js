@@ -1,4 +1,4 @@
-import { CHANNEL_NAME, applyTheme, renderSlide, videoCommand } from "./screen.js";
+import { CHANNEL_NAME, applyTheme, renderSlide, videoCommand, unlockSound } from "./screen.js";
 import { MEDIA_ID_RE, ImportError, putMedia, getMediaUrl, deleteMedia, pruneMedia, imageToJpegBlob } from "./media.js";
 import { readPresentation } from "./pptx.js";
 import { DriveError, extractFolderId, isDriveId, listFolder, fetchAudio } from "./drive.js";
@@ -40,8 +40,8 @@ let customMedia = null; // video or PowerPoint chosen in the editor: { video, de
 let importing = false;  // true while a video/PowerPoint is being stored (blocks cleanup)
 let videoPaused = false; // operator pressed Pause on the current video
 let lastVideoKey = "";
-let frozen = false;   // true: the output window keeps its current picture while the preview moves on
-let lastSent = null;  // last message the output window was allowed to receive
+let live = true;      // true: the output window shows the current slide; false: the output window stays blank
+let lastSent = null;  // last message sent to the output window
 let esvKey = "";
 let driveFolderId = ""; // root Google Drive folder
 let driveFolderBad = false; // the folder box holds something that is not a Drive folder link
@@ -486,11 +486,12 @@ function publish() {
   $("video-controls").hidden = !state.video;
   $("video-play").textContent = videoPaused ? "Play (K)" : "Pause (K)";
   $("blank").classList.toggle("active", state.blank);
-  renderSlide(previewEl, state, currentTheme(), { preview: true }); // the preview is always silent
-  const message = { state, theme: currentTheme() };
-  // While the output is frozen, the preview keeps updating but the output window is left alone.
-  if (!frozen) lastSent = message;
-  if (lastSent) channel.postMessage(lastSent);
+  // The output window is always silent; the sound of a video plays here, in the window the operator has clicked
+  // (browsers only allow sound after a click). It is muted while Live is off, so nothing is heard that the audience is not shown.
+  renderSlide(previewEl, state, currentTheme(), { mute: !live });
+  // The preview always shows the current slide. While Live is off, the output window gets a blank screen instead.
+  lastSent = { state: live ? state : { ...state, blank: true }, theme: currentTheme() };
+  channel.postMessage(lastSent);
 }
 
 // cmd: "toggle" | "restart"
@@ -501,17 +502,20 @@ function sendVideo(cmd) {
   else if (cmd === "restart") videoPaused = false;
   $("video-play").textContent = videoPaused ? "Play (K)" : "Pause (K)";
   videoCommand(previewEl, wire);
-  if (!frozen) channel.postMessage({ cmd: wire });
+  if (live) channel.postMessage({ cmd: wire });
 }
 
-function toggleFreeze() {
-  frozen = !frozen;
-  $("freeze").classList.toggle("active", frozen);
-  $("freeze").setAttribute("aria-pressed", String(frozen));
-  $("freeze").textContent = frozen ? "Unfreeze output (F)" : "Freeze output (F)";
-  previewEl.classList.toggle("frozen", frozen);
-  publish(); // unfreezing sends the current slide to the output
+function toggleLive() {
+  live = !live;
+  $("live").classList.toggle("active", live);
+  $("live").setAttribute("aria-pressed", String(live));
+  previewEl.classList.toggle("live", live);
+  publish(); // going live sends the current slide to the output; going off blanks it
 }
+
+// If the browser still blocked the sound (no click or key press yet), the next one turns it on.
+document.addEventListener("pointerdown", () => unlockSound(previewEl));
+document.addEventListener("keydown", () => unlockSound(previewEl));
 
 // ---------- Google Drive audio ----------
 function driveMessage(msg) {
@@ -999,33 +1003,44 @@ function showCustomNow() {
   selectSong(s, setIndex);
 }
 
+// Saves the form to the library and returns the saved slide (null if nothing was saved).
 function saveCustom() {
   const s = readCustomForm();
-  if (!s) return;
+  if (!s) return null;
   const before = customs.slice();
   if (editing) {
     const i = customs.indexOf(editing);
     if (i >= 0) customs[i] = s;
   } else {
-    if (customs.length >= MAX_CUSTOM) { setStatus("Custom slide limit reached"); return; }
+    if (customs.length >= MAX_CUSTOM) { setStatus("Custom slide limit reached"); return null; }
     customs.unshift(s);
   }
-  if (!saveCustoms()) { customs = before; return; }
+  if (!saveCustoms()) { customs = before; return null; }
   resetCustomForm(); // also removes stored media that is no longer used
   renderSongList();
   renderSetlist();
   setStatus(`Saved custom slide "${s.title}"`);
+  return s;
+}
+
+// Saves the form to the library (the set list refers to library entries) and appends it to the set list.
+function addCustomToSet() {
+  if (setlist.length >= MAX_SETLIST) { setStatus("Set list is full"); return; }
+  const s = saveCustom();
+  if (!s) return;
+  addToSetlist(s);
+  setStatus(`Saved "${s.title}" and added it to the set list`);
 }
 
 // ---------- ESV Bible ----------
-// Turns ESV text with "[16]" verse markers into slides of N verses (shown as "16 text"), each ending with the reference.
+// Turns ESV text with "[16]" verse markers into slides of N verses (shown as "16 text", one verse per row). Only the last slide ends with the reference.
 function esvToSlides(text, ref, perSlide) {
   const verses = text.replace(/\r\n?/g, "\n").split(/(?=\[\d+\])/)
     .map((v) => v.replace(/\s+/g, " ").replace(/^\[(\d+)\]\s*/, "$1 ").trim())
     .filter(Boolean);
   const groups = [];
-  for (let i = 0; i < verses.length; i += perSlide) groups.push(verses.slice(i, i + perSlide).join(" "));
-  return groups.map((g) => `${g}\n\u2014 ${ref} (ESV)`).join("\n\n");
+  for (let i = 0; i < verses.length; i += perSlide) groups.push(verses.slice(i, i + perSlide).join("\n"));
+  return groups.map((g, i) => (i === groups.length - 1 ? `${g}\n\u2014 ${ref} (ESV)` : g)).join("\n\n");
 }
 
 async function fetchEsv() {
@@ -1066,7 +1081,8 @@ async function fetchEsv() {
       custom: true,
       esv: true,
     };
-    $("esv-preview").value = lyrics;
+    // The blank lines only separate slides in the stored text; the preview box shows the passage as continuous rows.
+    $("esv-preview").value = lyrics.replace(/\n{2,}/g, "\n");
     for (const id of ["esv-show", "esv-save", "esv-add"]) $(id).disabled = false;
     setStatus(`Fetched ${esvPending.title}`);
   } catch (err) {
@@ -1244,12 +1260,13 @@ $("custom-bg-file").addEventListener("change", (e) => pickBackground(e.target.fi
 $("custom-bg-clear").addEventListener("click", () => { customBg = ""; $("custom-bg-file").value = ""; renderBgPreview(); });
 $("custom-show").addEventListener("click", showCustomNow);
 $("custom-save").addEventListener("click", saveCustom);
+$("custom-add").addEventListener("click", addCustomToSet);
 $("custom-clear").addEventListener("click", resetCustomForm);
 $("search").addEventListener("input", renderSongList);
 $("prev").addEventListener("click", () => go(-1));
 $("next").addEventListener("click", () => go(1));
 $("blank").addEventListener("click", toggleBlank);
-$("freeze").addEventListener("click", toggleFreeze);
+$("live").addEventListener("click", toggleLive);
 $("blank-image-file").addEventListener("change", (e) => pickBlankImage(e.target.files[0]));
 $("blank-image-clear").addEventListener("click", clearBlankImage);
 $("drive-refresh").addEventListener("click", () => refreshDrive(true));
@@ -1329,7 +1346,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); go(1); }
   else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); go(-1); }
   else if (e.key === ".") toggleBlank();
-  else if (e.key.toLowerCase() === "f") toggleFreeze();
+  else if (e.key.toLowerCase() === "f") toggleLive();
   else if (e.key.toLowerCase() === "k") sendVideo("toggle");
   else if (e.key.toLowerCase() === "s") sendVideo("restart");
   else if (e.key.toLowerCase() === "r") reloadSheet();

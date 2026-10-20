@@ -8,12 +8,10 @@
 </head>
 <body class="output">
   <div class="screen blank" id="screen"><div class="inner"></div></div>
-  <div class="sound-hint" id="sound-hint" hidden>Click this window once to turn on video sound</div>
   <script type="module">
-    import { CHANNEL_NAME, applyTheme, renderSlide, videoCommand, unlockSound } from "./screen.js";
+    import { CHANNEL_NAME, applyTheme, renderSlide, videoCommand } from "./screen.js";
 
     const screen = document.getElementById("screen");
-    const hint = document.getElementById("sound-hint");
     const channel = new BroadcastChannel(CHANNEL_NAME);
     let theme = null;
     let state = null;
@@ -27,18 +25,12 @@
       }
       if (msg.theme) { theme = msg.theme; applyTheme(screen, theme); }
       if (msg.state) { state = msg.state; }
-      if (theme && state) {
-        if (!state.video) hint.hidden = true;
-        renderSlide(screen, state, theme, { onSoundBlocked: () => { hint.hidden = false; } });
-      }
+      // This window only shows the picture. Video sound plays in the operator window, which the browser
+      // allows to make sound without anyone having to click here first.
+      if (theme && state) renderSlide(screen, state, theme, { mute: true });
     };
 
     channel.postMessage({ hello: true });
-
-    // Browsers only allow video sound after the page has had a click or key press.
-    const unlock = () => { unlockSound(screen); hint.hidden = true; };
-    document.addEventListener("pointerdown", unlock);
-    document.addEventListener("keydown", unlock);
 
     // Double-click or F to toggle fullscreen
     const toggleFs = () => document.fullscreenElement

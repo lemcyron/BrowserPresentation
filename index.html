@@ -46,6 +46,7 @@
           <div class="controls">
             <button id="custom-show" class="primary">Show now</button>
             <button id="custom-save">Save to library</button>
+            <button id="custom-add" title="Save to the library and add to the set list">Add to set list</button>
             <button id="custom-clear">Clear</button>
           </div>
         </details>
@@ -122,13 +123,13 @@
           <button id="prev-song" title="Previous song in set list">&#9664;&#9664; Song</button>
           <button id="next-song" title="Next song in set list">Song &#9654;&#9654;</button>
           <button id="blank" class="danger" title="Blank the output (. key)">Blank (.)</button>
-          <button id="freeze" aria-pressed="false" title="Keep the output window as it is while you keep working in the preview">Freeze output (F)</button>
+          <button id="live" class="active" aria-pressed="true" title="On: the output window shows the preview. Off: the output window is blank while you keep working in the preview (F key)">Live (F)</button>
         </div>
         <div class="controls video-controls" id="video-controls" hidden>
           <button id="video-play" title="Play or pause the video (K key)">Pause (K)</button>
           <button id="video-restart" title="Restart the video (S key)">Restart (S)</button>
         </div>
-        <div class="screen preview blank" id="preview"><div class="inner"></div></div>
+        <div class="screen preview blank live" id="preview"><div class="inner"></div></div>
       </div>
       <div class="body"><ul class="slide-list" id="slides"></ul></div>
     </section>
@@ -181,7 +182,7 @@
         <p class="empty">
           Sheet must be shared as “Anyone with the link can view”. First row holds headers:
           <code>title</code>, <code>lyrics</code>, optional <code>author</code>.<br>
-          Keys: &rarr; / Space next, &larr; previous, . blank, F freeze output, N / P next / previous set list song, K pause/play video, S restart video.<br>
+          Keys: &rarr; / Space next, &larr; previous, . blank, F Live on/off (off blanks the output window), N / P next / previous set list song, K pause/play video, S restart video.<br>
           App: R reload sheet, O open output window, I open this menu.<br>
           Jump to a field: L library search, A Google Drive search, C custom slide name, B Bible reference. Esc folds the Custom slide, Bible and Google Drive boxes (and leaves the field).
           Pressing next on the last slide of a set list song moves to the next song.
