@@ -44,7 +44,7 @@ if "$PY" -c "import socket,sys; s=socket.socket(); s.settimeout(1); sys.exit(0 i
 fi
 
 echo "Starting server on $URL"
-echo "Press Ctrl+C to stop it."
+echo "It stops by itself when the presentation page is closed. Press Ctrl+C to stop it sooner."
 echo
 
 # Open the browser shortly after the server starts.

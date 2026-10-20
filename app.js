@@ -198,6 +198,22 @@ async function loadSongs() {
 function setStatus(msg) { $("status").textContent = msg; }
 
 // ---------- Slides ----------
+// Section labels such as "Verse 1", "[Chorus]", "(Bridge)", "Refrain:" or "Chorus x2" are shown to the operator
+// (slide list and preview) but removed from what the output window displays.
+const SECTION_WORD = "(?:pre[- ]?chorus|post[- ]?chorus|chorus|verse|refrain|bridge|intro|outro|tag|coda|interlude|instrumental|ending|vamp|turnaround|hook)";
+const SECTION_LINE_RE = new RegExp(`^[\\[({<]?\\s*${SECTION_WORD}(?:\\s*\\d+|\\s+[a-z])?\\s*(?:\\(?\\s*(?:x\\s*\\d+|\\d+\\s*x)\\s*\\)?)?\\s*[\\])}>]?\\s*:?$`, "i");
+const SECTION_PREFIX_RE = new RegExp(`^[\\[({<]?\\s*${SECTION_WORD}(?:\\s*\\d+|\\s+[a-z])?\\s*[\\])}>]?\\s*:\\s+(?=\\S)`, "i");
+
+// Removes label-only lines, and a "Chorus: " prefix in front of a lyric line.
+function stripSectionLabels(block) {
+  return block.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => !SECTION_LINE_RE.test(line))
+    .map((line) => line.replace(SECTION_PREFIX_RE, ""))
+    .join("\n")
+    .trim();
+}
+
 // Returns slide objects: { text, isTitle }. A title slide comes first when enabled.
 function buildSlides(s) {
   if (s.video) return [{ text: s.lyrics.trim(), isTitle: false, video: s.video, muted: Boolean(s.muted) }];
@@ -489,8 +505,12 @@ function publish() {
   // The output window is always silent; the sound of a video plays here, in the window the operator has clicked
   // (browsers only allow sound after a click). It is muted while Live is off, so nothing is heard that the audience is not shown.
   renderSlide(previewEl, state, currentTheme(), { mute: !live });
-  // The preview always shows the current slide. While Live is off, the output window gets a blank screen instead.
-  lastSent = { state: live ? state : { ...state, blank: true }, theme: currentTheme() };
+  // The preview shows the slide as written, labels included. The output window gets the lyrics only (sheet songs);
+  // while Live is off it gets a blank screen instead.
+  const out = { ...state };
+  if (song && !song.custom && !state.isTitle && !state.video) out.text = stripSectionLabels(state.text);
+  if (!live) out.blank = true;
+  lastSent = { state: out, theme: currentTheme() };
   channel.postMessage(lastSent);
 }
 
@@ -1362,6 +1382,9 @@ channel.onmessage = (e) => {
 
 // ---------- Init ----------
 initLayout();
+// Keeps a connection open to the local server while this page is open. When the page is closed the server sees
+// the connection drop and shuts itself down. Only the page opened from server.py has this endpoint; elsewhere it just fails once.
+const aliveStream = location.protocol.startsWith("http") ? new EventSource("/api/alive") : null;
 (async function init() {
   try {
     config = await fetchJson("config.json");

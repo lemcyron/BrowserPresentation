@@ -17,7 +17,7 @@ netstat -ano | findstr /r /c:"127.0.0.1:%PORT% .*LISTENING" >nul
 if %errorlevel%==0 goto :already
 
 echo Starting server on %URL%
-echo Close this window or press Ctrl+C to stop it.
+echo It stops by itself when the presentation page is closed. Close this window or press Ctrl+C to stop it sooner.
 echo.
 
 rem Open the browser after a short delay so the server is ready.

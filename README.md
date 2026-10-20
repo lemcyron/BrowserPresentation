@@ -1,4 +1,4 @@
-﻿# Lyrics Presentation
+# Lyrics Presentation
 
 Browser-based lyrics presentation software (HTML + CSS + JavaScript modules + JSON config). Songs come from a Google Sheet, with `songs.json` as a fallback.
 
@@ -12,7 +12,7 @@ Start it with the script for your system. Each one finds Python, starts the serv
 | macOS | Double-click **`start.command`** (or run `./start.sh`). If macOS blocks it, right-click, Open |
 | Linux | Run `./start.sh` in a terminal |
 
-On macOS and Linux the scripts may need to be made executable once: `chmod +x start.sh start.command`. Use another port with `PORT=8080 ./start.sh`. Close the window (or press Ctrl+C) to stop the server.
+On macOS and Linux the scripts may need to be made executable once: `chmod +x start.sh start.command`. Use another port with `PORT=8080 ./start.sh`. The server stops by itself a few seconds after the presentation page (`index.html`) is closed; closing the output window does not stop it. You can also close the terminal window or press Ctrl+C.
 
 To start it manually instead: browsers block ES modules and `fetch` on `file://`, so serve the folder locally, bound to localhost only:
 
