@@ -1,0 +1,20 @@
+{
+  "sheet": {
+    "id": "",
+    "gid": "0",
+    "titleColumn": "title",
+    "lyricsColumn": "lyrics",
+    "authorColumn": "author",
+    "timeoutMs": 10000
+  },
+  "fallbackSongsFile": "songs.json",
+  "theme": {
+    "background": "#000000",
+    "color": "#ffffff",
+    "fontFamily": "Segoe UI, system-ui, sans-serif",
+    "fontSize": 7,
+    "align": "center",
+    "uppercase": false,
+    "showTitle": true
+  }
+}

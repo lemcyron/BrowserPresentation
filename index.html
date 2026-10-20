@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Presentation Browser</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <h1>Presentation Browser</h1>
+      <span id="status">Loading…</span>
+      <button id="reload" title="Reload songs from the Google Sheet (R key)">Reload sheet (R)</button>
+      <button id="open-output" class="primary" title="Open the audience window (O key)">Open output window (O)</button>
+      <button id="menu-btn" class="burger" aria-label="Settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="drawer" title="Settings (I key)">
+        <span></span><span></span><span></span>
+      </button><span class="key-hint" aria-hidden="true">(I)</span>
+    </div>
+
+    <section class="panel" id="library-panel">
+        <header>Library <small>(+ or double-click adds to set list)</small></header>
+        <div style="padding:8px"><input type="search" id="search" placeholder="Search title, author or lyrics (L)" title="Press L to jump here"></div>
+        <div class="body"><ul class="song-list" id="songs"></ul></div>
+        <div class="tools" id="editor-tools">
+        <details class="custom" id="custom-editor">
+          <summary title="Press C to jump to the Name box">Custom slide (C)</summary>
+          <input type="text" id="custom-title" maxlength="300" placeholder="Name (optional, used in the library and set list)">
+          <textarea id="custom-text" rows="5" maxlength="20000" placeholder="Type your text. A blank line starts a new slide."></textarea>
+          <label class="field-label" for="custom-bg-file">Background image <span>JPG, PNG, WebP or GIF</span></label>
+          <div class="bg-row">
+            <input type="file" id="custom-bg-file" accept="image/jpeg,image/png,image/webp,image/gif" title="Background image">
+            <button id="custom-bg-clear" type="button" hidden>Remove image</button>
+          </div>
+          <div class="bg-thumb" id="custom-bg-preview" hidden></div>
+          <label class="bg-dim" id="custom-dim-row" hidden>Darken image
+            <input type="range" id="custom-dim" min="0" max="80" step="5" value="40">
+          </label>
+          <label class="field-label" for="custom-media-file">Video or PowerPoint <span>MP4, WebM, MOV, PPTX or PPSX</span></label>
+          <div class="bg-row">
+            <input type="file" id="custom-media-file" accept="video/mp4,video/webm,video/ogg,video/quicktime,.mp4,.webm,.ogv,.mov,.m4v,.pptx,.ppsx" title="Video or PowerPoint">
+            <button id="custom-media-clear" type="button" hidden>Remove</button>
+          </div>
+          <div class="media-info" id="custom-media-info" hidden></div>
+          <label class="inline-check" id="custom-mute-row" hidden><input type="checkbox" id="custom-muted"> Mute video sound</label>
+          <div class="controls">
+            <button id="custom-show" class="primary">Show now</button>
+            <button id="custom-save">Save to library</button>
+            <button id="custom-clear">Clear</button>
+          </div>
+        </details>
+
+        <details class="custom" id="esv-editor">
+          <summary title="Press B to jump to the reference box">ESV Bible verses (B)</summary>
+          <div class="esv-row">
+            <input type="text" id="esv-ref" maxlength="200" placeholder="e.g. John 3:16-18 or Psalm 23">
+            <label class="esv-per">Verses/slide <input type="number" id="esv-per" min="1" max="10" value="2"></label>
+          </div>
+          <div class="controls">
+            <button id="esv-fetch" class="primary">Fetch</button>
+          </div>
+          <textarea id="esv-preview" rows="5" readonly placeholder="The fetched passage appears here, split into slides."></textarea>
+          <div class="controls">
+            <button id="esv-show" disabled>Show now</button>
+            <button id="esv-save" disabled>Save to library</button>
+            <button id="esv-add" disabled>Add to set list</button>
+          </div>
+        </details>
+        </div>
+    </section>
+
+    <div class="resizer" id="resize-lib" role="separator" aria-orientation="vertical" aria-label="Resize library column" tabindex="0" title="Drag to resize (double-click to reset)"></div>
+
+    <section class="panel" id="setlist-panel">
+        <header class="row">
+          <span>Set list <small id="set-count"></small></span>
+          <span class="row-actions">
+            <button id="set-export" title="Download set list as JSON">Export</button>
+            <button id="set-import" title="Load a set list JSON file">Import</button>
+            <button id="set-clear" title="Remove all songs from the set list">Clear</button>
+          </span>
+        </header>
+        <div class="body"><ol class="set-list" id="setlist"></ol></div>
+        <input type="file" id="set-file" accept="application/json,.json" hidden>
+        <div class="tools audioset" id="audioset">
+          <div class="aset-head">
+            <strong>Audio set list <small id="aset-count"></small></strong>
+            <span class="row-actions"><button id="aset-clear" title="Remove all tracks from the audio set list">Clear</button></span>
+          </div>
+          <div class="controls">
+            <button id="aset-prev" title="Previous track">&#9664;&#9664; Track</button>
+            <button id="aset-next" title="Next track">Track &#9654;&#9654;</button>
+          </div>
+          <ol class="set-list" id="aset-list"></ol>
+          <div class="player" id="drive-player" hidden>
+            <div class="now" id="drive-now"></div>
+            <audio id="drive-audio" controls preload="none"></audio>
+          </div>
+        </div>
+        <div class="tools" id="drive-tools">
+          <details class="custom" id="drive-panel" open>
+            <summary>Google Drive audio <small>(+ adds to set)</small></summary>
+            <div class="drive-head">
+              <span class="drive-path" id="drive-path"></span>
+              <button id="drive-refresh" type="button" title="Reload the folder listing">Refresh</button>
+            </div>
+            <input type="search" id="drive-search" placeholder="Search this folder (A)" title="Press A to jump here" aria-label="Search the Google Drive folder" maxlength="200">
+            <div class="drive-status" id="drive-status" hidden></div>
+            <ul class="drive-list" id="drive-files"></ul>
+          </details>
+        </div>
+    </section>
+
+    <div class="resizer" id="resize-set" role="separator" aria-orientation="vertical" aria-label="Resize set list column" tabindex="0" title="Drag to resize (double-click to reset)"></div>
+
+    <section class="panel" id="preview-panel">
+      <header id="current-title">No song selected</header>
+      <div class="stage">
+        <div class="controls">
+          <button id="prev">&larr; Previous</button>
+          <button id="next" class="primary">Next &rarr;</button>
+          <button id="prev-song" title="Previous song in set list">&#9664;&#9664; Song</button>
+          <button id="next-song" title="Next song in set list">Song &#9654;&#9654;</button>
+          <button id="blank" class="danger" title="Blank the output (. key)">Blank (.)</button>
+          <button id="freeze" aria-pressed="false" title="Keep the output window as it is while you keep working in the preview">Freeze output (F)</button>
+        </div>
+        <div class="controls video-controls" id="video-controls" hidden>
+          <button id="video-play" title="Play or pause the video (K key)">Pause (K)</button>
+          <button id="video-restart" title="Restart the video (S key)">Restart (S)</button>
+        </div>
+        <div class="screen preview blank" id="preview"><div class="inner"></div></div>
+      </div>
+      <div class="body"><ul class="slide-list" id="slides"></ul></div>
+    </section>
+
+    <div class="backdrop" id="backdrop" hidden></div>
+    <aside class="drawer" id="drawer" role="dialog" aria-label="Settings" hidden>
+      <header class="row">
+        <span>Settings</span>
+        <button id="menu-close" aria-label="Close settings" title="Close (Esc)">&times;</button>
+      </header>
+      <div class="body">
+        <label style="font-size:12px;color:var(--muted)">Google Sheet URL or ID
+          <input type="text" id="sheet-id" placeholder="https://docs.google.com/spreadsheets/d/…">
+        </label>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-top:12px">Google Drive folder URL (MP3 files)
+          <input type="text" id="drive-folder" placeholder="https://drive.google.com/drive/folders/…">
+        </label>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-top:12px">Google API key (for the Drive folder)
+          <input type="password" id="drive-key" autocomplete="off" spellcheck="false" placeholder="Key from console.cloud.google.com, Drive API enabled">
+        </label>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-top:12px">ESV API key
+          <input type="password" id="esv-key" autocomplete="off" spellcheck="false" placeholder="Token from api.esv.org">
+        </label>
+        <div class="settings">
+          <label>Tab gid <input type="text" id="sheet-gid" inputmode="numeric"></label>
+          <label>Lines per slide (0 = by blank line)
+            <input type="number" id="lines" min="0" max="20" value="0">
+          </label>
+          <label>Background <input type="color" id="bg"></label>
+          <label>Text colour <input type="color" id="fg"></label>
+          <label>Font size <input type="number" id="size" min="2" max="20" step="0.5"></label>
+          <label>Align
+            <select id="align">
+              <option value="left">Left</option>
+              <option value="center">Centre</option>
+              <option value="right">Right</option>
+            </select>
+          </label>
+          <label class="inline"><input type="checkbox" id="uppercase"> Uppercase</label>
+          <label class="inline"><input type="checkbox" id="show-title"> Title slide at start of each song</label>
+        </div>
+        <div class="blank-setting">
+          <label class="field-label" for="blank-image-file">Blank screen image <span>JPG, PNG, WebP or GIF</span></label>
+          <div class="bg-row">
+            <input type="file" id="blank-image-file" accept="image/jpeg,image/png,image/webp,image/gif" title="Picture shown when the output is blank">
+            <button id="blank-image-clear" type="button" hidden>Remove</button>
+          </div>
+          <div class="media-info" id="blank-image-info"></div>
+        </div>
+        <p class="empty">
+          Sheet must be shared as “Anyone with the link can view”. First row holds headers:
+          <code>title</code>, <code>lyrics</code>, optional <code>author</code>.<br>
+          Keys: &rarr; / Space next, &larr; previous, . blank, F freeze output, N / P next / previous set list song, K pause/play video, S restart video.<br>
+          App: R reload sheet, O open output window, I open this menu.<br>
+          Jump to a field: L library search, A Google Drive search, C custom slide name, B Bible reference. Esc folds the Custom slide, Bible and Google Drive boxes (and leaves the field).
+          Pressing next on the last slide of a set list song moves to the next song.
+        </p>
+        <button id="save-settings">Save settings</button>
+      </div>
+    </aside>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

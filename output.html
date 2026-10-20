@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Presentation Output</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="output">
+  <div class="screen blank" id="screen"><div class="inner"></div></div>
+  <div class="sound-hint" id="sound-hint" hidden>Click this window once to turn on video sound</div>
+  <script type="module">
+    import { CHANNEL_NAME, applyTheme, renderSlide, videoCommand, unlockSound } from "./screen.js";
+
+    const screen = document.getElementById("screen");
+    const hint = document.getElementById("sound-hint");
+    const channel = new BroadcastChannel(CHANNEL_NAME);
+    let theme = null;
+    let state = null;
+
+    channel.onmessage = (e) => {
+      const msg = e.data;
+      if (!msg || typeof msg !== "object") return;
+      if (typeof msg.cmd === "string") {
+        if (["play", "pause", "restart"].includes(msg.cmd)) videoCommand(screen, msg.cmd);
+        return;
+      }
+      if (msg.theme) { theme = msg.theme; applyTheme(screen, theme); }
+      if (msg.state) { state = msg.state; }
+      if (theme && state) {
+        if (!state.video) hint.hidden = true;
+        renderSlide(screen, state, theme, { onSoundBlocked: () => { hint.hidden = false; } });
+      }
+    };
+
+    channel.postMessage({ hello: true });
+
+    // Browsers only allow video sound after the page has had a click or key press.
+    const unlock = () => { unlockSound(screen); hint.hidden = true; };
+    document.addEventListener("pointerdown", unlock);
+    document.addEventListener("keydown", unlock);
+
+    // Double-click or F to toggle fullscreen
+    const toggleFs = () => document.fullscreenElement
+      ? document.exitFullscreen()
+      : document.documentElement.requestFullscreen();
+    document.addEventListener("dblclick", toggleFs);
+    document.addEventListener("keydown", (e) => { if (e.key.toLowerCase() === "f") toggleFs(); });
+  </script>
+</body>
+</html>
