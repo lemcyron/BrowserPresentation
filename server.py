@@ -3,9 +3,14 @@
 Custom HTTP server for the presentation app with ESV API proxy.
 Serves static files and proxies ESV API requests to avoid CORS issues.
 """
+import base64
 import json
 import os
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -16,6 +21,97 @@ from pathlib import Path
 PORT = int(os.environ.get("PORT", 8000))
 DIRECTORY = Path(__file__).parent
 ESV_API_URL = "https://api.esv.org/v3/passage/text/"
+
+def natural_sort_key(s):
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]
+
+
+def convert_pptx_to_images(pptx_bytes):
+    temp_dir = tempfile.mkdtemp(prefix="pptx_conv_")
+    try:
+        input_file = os.path.join(temp_dir, "input.pptx")
+        export_dir = os.path.join(temp_dir, "slides")
+        os.makedirs(export_dir, exist_ok=True)
+        with open(input_file, "wb") as f:
+            f.write(pptx_bytes)
+
+        if sys.platform == "win32":
+            abs_input = os.path.abspath(input_file)
+            abs_export = os.path.abspath(export_dir)
+            ps_script = f"""
+$ErrorActionPreference = 'Stop'
+$ppt = $null
+$pres = $null
+try {{
+    $ppt = New-Object -ComObject PowerPoint.Application
+    $pres = $ppt.Presentations.Open('{abs_input}', [Microsoft.Office.Core.MsoTriState]::msoTrue, [Microsoft.Office.Core.MsoTriState]::msoFalse, [Microsoft.Office.Core.MsoTriState]::msoFalse)
+    $pres.SaveAs('{abs_export}', 17)
+}} finally {{
+    if ($pres) {{
+        $pres.Close()
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($pres) | Out-Null
+    }}
+    if ($ppt) {{
+        $ppt.Quit()
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($ppt) | Out-Null
+    }}
+    [System.GC]::Collect()
+    [System.GC]::WaitForPendingFinalizers()
+}}
+"""
+            proc = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"PowerPoint export failed: {proc.stderr.strip() or proc.stdout.strip()}")
+        else:
+            soffice = shutil.which("soffice") or shutil.which("libreoffice")
+            if not soffice:
+                raise RuntimeError("LibreOffice or PowerPoint is required on the server to convert slides.")
+            proc = subprocess.run(
+                [soffice, "--headless", "--convert-to", "pdf", input_file, "--outdir", export_dir],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"LibreOffice conversion failed: {proc.stderr.strip()}")
+            pdf_path = os.path.join(export_dir, "input.pdf")
+            if not os.path.exists(pdf_path):
+                raise RuntimeError("Failed to generate PDF from presentation")
+            pdftoppm = shutil.which("pdftoppm")
+            if not pdftoppm:
+                raise RuntimeError("pdftoppm is required to render PDF slides to images")
+            proc2 = subprocess.run(
+                [pdftoppm, "-jpeg", "-r", "150", pdf_path, os.path.join(export_dir, "slide")],
+                capture_output=True,
+                text=True,
+                timeout=90,
+            )
+            if proc2.returncode != 0:
+                raise RuntimeError(f"pdftoppm failed: {proc2.stderr.strip()}")
+
+        exported_files = [
+            f for f in os.listdir(export_dir)
+            if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+        ]
+        exported_files.sort(key=natural_sort_key)
+
+        images = []
+        for f in exported_files:
+            file_path = os.path.join(export_dir, f)
+            with open(file_path, "rb") as img_file:
+                b64 = base64.b64encode(img_file.read()).decode("ascii")
+                mime = "image/png" if f.lower().endswith(".png") else "image/jpeg"
+                images.append(f"data:{mime};base64,{b64}")
+
+        return images
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 # The index page keeps one connection open to /api/alive while it is open. When the last one closes, the
 # server stops after a short grace period (so a page reload, which closes and reopens it, does not stop it).
@@ -107,8 +203,34 @@ class PresentationHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/api/esv":
             self.handle_esv_proxy()
+        elif self.path == "/api/convert-pptx":
+            self.handle_pptx_convert()
         else:
             self.send_error(404)
+
+    def handle_pptx_convert(self):
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            self.send_json_response({"error": "Empty file"}, 400)
+            return
+        if content_length > 200 * 1024 * 1024:
+            self.send_json_response({"error": "File too large (200 MB maximum)"}, 400)
+            return
+
+        try:
+            pptx_bytes = self.rfile.read(content_length)
+        except Exception as e:
+            self.send_json_response({"error": f"Failed to read upload: {e}"}, 400)
+            return
+
+        try:
+            images = convert_pptx_to_images(pptx_bytes)
+            if not images:
+                self.send_json_response({"error": "No slides were exported from the presentation"}, 400)
+                return
+            self.send_json_response({"success": True, "slides": images, "count": len(images)})
+        except Exception as e:
+            self.send_json_response({"error": f"PowerPoint conversion error: {e}"}, 500)
 
     def handle_esv_proxy(self):
         content_length = int(self.headers.get("Content-Length", 0))

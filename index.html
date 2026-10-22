@@ -19,7 +19,13 @@
     </div>
 
     <section class="panel" id="library-panel">
-        <header>Library <small>(+ or double-click adds to set list)</small></header>
+        <header class="row">
+          <span>Library <small>(+ or double-click adds to set list)</small></span>
+          <span class="row-actions">
+            <button id="pptx-import-btn" title="Open PowerPoint (.pptx) presentation, export slides as images, and add to set list">+ PowerPoint</button>
+          </span>
+        </header>
+        <input type="file" id="pptx-file" accept=".pptx,.ppsx" hidden>
         <div style="padding:8px"><input type="search" id="search" placeholder="Search title, author or lyrics (L)" title="Press L to jump here"></div>
         <div class="body"><ul class="song-list" id="songs"></ul></div>
         <div class="tools" id="editor-tools">

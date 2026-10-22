@@ -69,9 +69,9 @@ In the **Custom slide** editor, use the **Video or PowerPoint** file picker.
 - Video sound plays from the **operator window** (the preview), not the output window. Browsers block sound in a window nobody has clicked, so the output window is always silent and needs no click. Use the computer's speakers, or make sure the sound goes to the same device as the projector. The preview is muted while **Live** is off. Sound and picture are two separate players, so they can drift apart slightly. Tick **Mute** in the editor for silent clips.
 
 **PowerPoint** (`.pptx` or `.ppsx`, up to 200 MB and 300 slides)
-- Each PowerPoint slide becomes one slide: its text, over its largest picture.
-- Not imported: shapes, charts, SmartArt, animations, transitions, embedded video/audio. Old `.ppt` files are not supported; in PowerPoint use *Save As* and choose `.pptx`. Password-protected files are rejected.
-- Check the result in the slide list. For slides that rely on shapes or charts, export them as pictures from PowerPoint and use them as image backgrounds instead.
+- Click **+ PowerPoint** in the Library header (or choose a `.pptx` file under Custom slide).
+- Slides are automatically rendered and exported as full-resolution images (preserving all formatting, shapes, fonts, and backgrounds) and added directly to your Set List and Library.
+- Old `.ppt` files are not supported; in PowerPoint use *Save As* and choose `.pptx`. Password-protected files are rejected.
 
 Videos and pictures are stored in the browser (IndexedDB), not in the set list or in localStorage, so they are only available in the browser and on the computer where you imported them. Clearing site data removes them. If the browser's storage is full you will see a message. Files that are no longer used by any custom slide are removed automatically.
 

@@ -900,29 +900,51 @@ async function pickBackground(file) {
   }
 }
 
-// Stores a chosen video or PowerPoint in IndexedDB and shows it in the editor.
-async function pickMedia(file) {
+// Automatically exports PowerPoint slides as images, saves to library, and adds to set list.
+async function importPowerPoint(file) {
   if (!file) return;
   const name = file.name.toLowerCase();
-  const isDeck = /\.(pptx|ppsx|ppt)$/.test(name);
-  const isVideo = file.type.startsWith("video/") || /\.(mp4|webm|ogv|mov|m4v)$/.test(name);
-  if (!isDeck && !isVideo) { setStatus("Choose a video (MP4, WebM, MOV) or a PowerPoint (.pptx)"); $("custom-media-file").value = ""; return; }
+  if (name.endsWith(".ppt")) throw new ImportError("Old .ppt files are not supported. In PowerPoint use Save As and choose .pptx.");
+  if (!/\.(pptx|ppsx)$/.test(name)) throw new ImportError("Choose a .pptx or .ppsx file");
+  if (file.size > 200 * 1024 * 1024) throw new ImportError("This presentation is too large (200 MB maximum)");
 
+  if (importing) { setStatus("Wait for the file to finish importing"); return; }
   importing = true;
-  const created = []; // ids stored by this import, removed again if it fails
+  const created = [];
   try {
-    if (isVideo) {
-      if (file.size > MAX_VIDEO_FILE) throw new ImportError("Video is too large (2 GB maximum)");
-      setStatus(`Importing video ${file.name}…`);
-      const id = await putMedia(file);
-      created.push(id);
-      // Make sure this browser can actually play it (e.g. some .mov/.mkv codecs cannot).
-      await checkPlayable(id);
-      customMedia = { video: id, deck: [], name: file.name };
-    } else {
+    setStatus(`Exporting slides from ${file.name} as images…`);
+    let deck = [];
+    let convertedOnServer = false;
+
+    try {
+      const res = await fetch("/api/convert-pptx", {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.slides && data.slides.length) {
+          setStatus(`Saving ${data.slides.length} slide images…`);
+          for (const dataUrl of data.slides.slice(0, MAX_DECK_SLIDES)) {
+            const blob = await (await fetch(dataUrl)).blob();
+            const id = await putMedia(blob);
+            created.push(id);
+            deck.push({ text: "", image: id });
+          }
+          convertedOnServer = true;
+        }
+      } else {
+        const errData = await res.json().catch(() => null);
+        console.warn("Server PPTX conversion failed:", errData || res.statusText);
+      }
+    } catch (netErr) {
+      console.warn("Could not reach /api/convert-pptx, falling back to client parser:", netErr);
+    }
+
+    if (!convertedOnServer) {
       setStatus(`Reading ${file.name}…`);
       const { slides: deckSlides } = await readPresentation(file);
-      const deck = [];
       for (const s of deckSlides.slice(0, MAX_DECK_SLIDES)) {
         let image = "";
         if (s.picture) {
@@ -931,10 +953,76 @@ async function pickMedia(file) {
         }
         deck.push({ text: s.text.slice(0, MAX_DECK_TEXT), image });
       }
-      if (!deck.some((d) => d.text || d.image)) throw new ImportError("No text or pictures were found in this presentation");
-      customMedia = { video: "", deck, name: file.name };
     }
-    // A new file replaces the previous one; keep the typed text for a video caption only.
+
+    if (!deck.some((d) => d.text || d.image)) throw new ImportError("No slides were found in this presentation");
+
+    const rawTitle = file.name.replace(/\.[^/.]+$/, "").trim() || "PowerPoint Presentation";
+    const title = rawTitle.slice(0, 300);
+    const s = {
+      title,
+      lyrics: "",
+      author: "",
+      custom: true,
+      deck,
+      video: "",
+      bg: "",
+      dim: 0,
+    };
+
+    const existingIndex = customs.findIndex((c) => c.title === title && c.custom);
+    if (existingIndex >= 0) {
+      customs[existingIndex] = s;
+    } else {
+      if (customs.length >= MAX_CUSTOM) throw new ImportError("Custom slide limit reached");
+      customs.unshift(s);
+    }
+    if (!saveCustoms()) {
+      if (existingIndex < 0) customs.shift();
+      throw new ImportError("Browser storage is full. Please remove some custom slides.");
+    }
+
+    renderSongList();
+    addToSetlist(s);
+    playSetlistItem(setlist.length - 1);
+    resetCustomForm();
+    setStatus(`Exported ${deck.length} slides from "${title}" and added to set list`);
+  } catch (err) {
+    console.error(err);
+    for (const id of created) await deleteMedia(id).catch(() => {});
+    setStatus(describeImportError(err));
+  } finally {
+    importing = false;
+    $("custom-media-file").value = "";
+    const pptxInput = $("pptx-file");
+    if (pptxInput) pptxInput.value = "";
+    cleanupMedia();
+  }
+}
+
+// Stores a chosen video or PowerPoint in IndexedDB and shows it in the editor.
+async function pickMedia(file) {
+  if (!file) return;
+  const name = file.name.toLowerCase();
+  const isDeck = /\.(pptx|ppsx|ppt)$/.test(name);
+  const isVideo = file.type.startsWith("video/") || /\.(mp4|webm|ogv|mov|m4v)$/.test(name);
+  if (!isDeck && !isVideo) { setStatus("Choose a video (MP4, WebM, MOV) or a PowerPoint (.pptx)"); $("custom-media-file").value = ""; return; }
+
+  if (isDeck) {
+    await importPowerPoint(file);
+    return;
+  }
+
+  importing = true;
+  const created = []; // ids stored by this import, removed again if it fails
+  try {
+    if (file.size > MAX_VIDEO_FILE) throw new ImportError("Video is too large (2 GB maximum)");
+    setStatus(`Importing video ${file.name}…`);
+    const id = await putMedia(file);
+    created.push(id);
+    // Make sure this browser can actually play it (e.g. some .mov/.mkv codecs cannot).
+    await checkPlayable(id);
+    customMedia = { video: id, deck: [], name: file.name };
     renderMediaInfo();
     setStatus(`Imported ${file.name}`);
   } catch (err) {
@@ -1267,6 +1355,12 @@ $("esv-add").addEventListener("click", () => {
   const s = storeEsv();
   if (s) { addToSetlist(s); setStatus(`Added ${s.title} to the set list`); }
 });
+const pptxImportBtn = $("pptx-import-btn");
+const pptxFileInput = $("pptx-file");
+if (pptxImportBtn && pptxFileInput) {
+  pptxImportBtn.addEventListener("click", () => pptxFileInput.click());
+  pptxFileInput.addEventListener("change", (e) => importPowerPoint(e.target.files[0]));
+}
 $("custom-media-file").addEventListener("change", (e) => pickMedia(e.target.files[0]));
 $("custom-media-clear").addEventListener("click", () => {
   customMedia = null;
