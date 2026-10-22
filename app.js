@@ -8,6 +8,8 @@ const STORAGE_KEY = "presentation-settings-v1";
 const SETLIST_KEY = "presentation-setlist-v1";
 const AUDIOSET_KEY = "presentation-audioset-v1";
 const CUSTOM_KEY = "presentation-custom-v1";
+const LOCAL_SONGS_KEY = "presentation-local-songs-v1";
+const LOCAL_AUDIO_KEY = "presentation-local-audio-v1";
 const ESV_KEY_STORAGE = "presentation-esv-key-v1"; // API key entered by the user; never stored in config.json
 const DRIVE_KEY_STORAGE = "presentation-drive-key-v1"; // Google API key for the Drive folder; never stored in config.json
 const ESV_REF_RE = /^[A-Za-z0-9\s:;,.\-\u2013]+$/;
@@ -43,6 +45,8 @@ let lastVideoKey = "";
 let live = true;      // true: the output window shows the current slide; false: the output window stays blank
 let lastSent = null;  // last message sent to the output window
 let esvKey = "";
+let songSource = "sheet";   // "sheet" | "local"
+let audioSource = "local";  // "local" | "drive"
 let driveFolderId = ""; // root Google Drive folder
 let driveFolderBad = false; // the folder box holds something that is not a Drive folder link
 let driveKey = "";
@@ -50,11 +54,14 @@ let drivePath = [];     // folders entered below the root: [{ id, name }]
 let driveItems = [];    // current folder listing: [{ id, name, kind }]
 let driveLoaded = "";   // "folder|key" the listing was last loaded for
 let driveToken = 0;     // newest listing request; older answers are ignored
+let localAudioTracks = []; // [{ id, name, path, size }] stored locally
+let localAudioPath = [];   // current folder navigation in local audio: string[]
 let playToken = 0;      // newest play request; older downloads are ignored
-let playingId = "";     // Drive file id loaded into the audio player
-let audioSet = [];      // audio set list: [{ id, name }] Drive files, in play order
+let playingId = "";     // file id loaded into the audio player
+let playingIsLocal = false;
+let audioSet = [];      // audio set list: [{ id, name, local }] in play order
 let audioIndex = -1;    // position in audioSet of the track in the player, -1 if none
-let audioUrl = "";      // blob: URL of that file
+let audioUrl = "";      // blob: / object URL of that file
 let esvPending = null; // last fetched ESV passage, not yet saved: same shape as a custom slide
 let setlist = [];   // [{ title, author, custom }] references into the song library
 let setIndex = -1;  // position in setlist of the song being shown, -1 if none
@@ -79,7 +86,214 @@ function extractSheetId(value) {
 
 function currentTheme() { return config.theme; }
 
+// ---------- Song & Audio parsers / local management ----------
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+    if (inQuotes) {
+      if (c === '"') {
+        if (next === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        field += c;
+      }
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',' || c === '\t') { row.push(field); field = ""; }
+      else if (c === '\r') {
+        if (next === '\n') i++;
+        row.push(field); field = ""; rows.push(row); row = [];
+      } else if (c === '\n') {
+        row.push(field); field = ""; rows.push(row); row = [];
+      } else {
+        field += c;
+      }
+    }
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.some((cell) => cell.trim()));
+}
+
+function parseSongsCsv(text) {
+  const cleanText = text.replace(/^\uFEFF/, "");
+  const rows = parseCsvRows(cleanText);
+  if (!rows.length) return [];
+  const header = rows[0].map((h) => h.trim().toLowerCase().replace(/^["']|["']$/g, ""));
+  let iTitle = header.findIndex((h) => h === "title" || h === "song" || h === "song title" || h === "name");
+  let iLyrics = header.findIndex((h) => h === "lyrics" || h === "text" || h === "words" || h === "body");
+  let iAuthor = header.findIndex((h) => h === "author" || h === "artist" || h === "composer" || h === "by");
+  if (iTitle < 0 || iLyrics < 0) {
+    throw new Error('CSV must have "title" and "lyrics" headers in the first row');
+  }
+  return rows.slice(1).map((row) => ({
+    title: String(row[iTitle] || "").trim(),
+    lyrics: String(row[iLyrics] || "").trim(),
+    author: iAuthor >= 0 ? String(row[iAuthor] || "").trim() : "",
+  })).filter((s) => s.title && s.lyrics);
+}
+
+function parseSongsJson(text) {
+  const cleanText = text.replace(/^\uFEFF/, "");
+  const data = JSON.parse(cleanText);
+  const arr = Array.isArray(data) ? data : Array.isArray(data.songs) ? data.songs : [];
+  return arr.map((s) => ({
+    title: String(s.title || s.name || s.song || "").trim(),
+    lyrics: String(s.lyrics || s.text || s.words || s.body || "").trim(),
+    author: String(s.author || s.artist || "").trim(),
+  })).filter((s) => s.title && s.lyrics);
+}
+
+function loadSavedLocalSongs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LOCAL_SONGS_KEY));
+    if (raw && Array.isArray(raw.songs)) return raw.songs;
+    if (Array.isArray(raw)) return raw;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function renderLocalSongsInfo() {
+  const info = $("local-songs-info");
+  if (!info) return;
+  try {
+    const raw = JSON.parse(localStorage.getItem(LOCAL_SONGS_KEY));
+    if (raw && raw.songs && raw.songs.length) {
+      info.textContent = `Loaded ${raw.songs.length} songs from ${raw.name || "custom file"}`;
+      return;
+    }
+  } catch {}
+  info.textContent = `Using default ${config.fallbackSongsFile || "songs.json"}`;
+}
+
+async function importLocalSongsFile(file) {
+  if (!file) return;
+  setStatus(`Importing songs from ${file.name}…`);
+  try {
+    const text = await file.text();
+    let imported = [];
+    if (file.name.toLowerCase().endsWith(".json") || text.trim().startsWith("{") || text.trim().startsWith("[")) {
+      imported = parseSongsJson(text);
+    } else {
+      imported = parseSongsCsv(text);
+    }
+    if (!imported.length) throw new Error("No valid songs found in file (need title and lyrics)");
+    localStorage.setItem(LOCAL_SONGS_KEY, JSON.stringify({ name: file.name, songs: imported }));
+    songSource = "local";
+    $("song-source").value = "local";
+    updateSourceVisibility();
+    renderLocalSongsInfo();
+    await loadSongs();
+    setStatus(`Imported ${imported.length} songs from ${file.name}`);
+  } catch (err) {
+    console.error(err);
+    setStatus(`Failed to import songs: ${err.message}`);
+  } finally {
+    $("local-songs-file").value = "";
+  }
+}
+
+async function resetDefaultSongs() {
+  localStorage.removeItem(LOCAL_SONGS_KEY);
+  renderLocalSongsInfo();
+  await loadSongs();
+  setStatus("Restored default songs.json");
+}
+
+function loadLocalAudioList() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LOCAL_AUDIO_KEY));
+    localAudioTracks = Array.isArray(raw)
+      ? raw.filter((x) => x && typeof x.id === "string" && MEDIA_ID_RE.test(x.id) && typeof x.name === "string")
+      : [];
+  } catch {
+    localAudioTracks = [];
+  }
+}
+
+function saveLocalAudioList() {
+  localStorage.setItem(LOCAL_AUDIO_KEY, JSON.stringify(localAudioTracks));
+}
+
+function renderLocalAudioInfo() {
+  const info = $("local-audio-info");
+  const clearBtn = $("clear-local-audio");
+  if (!info) return;
+  const count = localAudioTracks.length;
+  if (!count) {
+    info.textContent = "No local audio files loaded.";
+    if (clearBtn) clearBtn.hidden = true;
+  } else {
+    const totalMb = (localAudioTracks.reduce((acc, t) => acc + (t.size || 0), 0) / (1024 * 1024)).toFixed(1);
+    info.textContent = `${count} track${count === 1 ? "" : "s"} loaded (${totalMb} MB). Stored locally in this browser.`;
+    if (clearBtn) clearBtn.hidden = false;
+  }
+}
+
+async function importLocalAudioFiles(fileList) {
+  if (!fileList || !fileList.length) return;
+  const files = Array.from(fileList).filter((f) =>
+    f.type.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(f.name)
+  );
+  if (!files.length) { setStatus("No audio files (MP3, WAV, OGG, M4A, FLAC) found in selection"); return; }
+
+  setStatus(`Adding ${files.length} audio file${files.length === 1 ? "" : "s"} to local library…`);
+  let added = 0;
+  for (const f of files) {
+    try {
+      const id = await putMedia(f);
+      const relPath = f.webkitRelativePath || f.name;
+      localAudioTracks.push({
+        id,
+        name: f.name,
+        path: relPath,
+        size: f.size,
+      });
+      added++;
+    } catch (err) {
+      console.error(`Failed to store audio file ${f.name}:`, err);
+    }
+  }
+  saveLocalAudioList();
+  renderLocalAudioInfo();
+  renderAudioBrowser();
+  setStatus(`Added ${added} audio track${added === 1 ? "" : "s"} to local library`);
+}
+
+async function clearLocalAudio() {
+  if (!confirm("Remove all local audio tracks from the library?")) return;
+  for (const track of localAudioTracks) {
+    await deleteMedia(track.id).catch(() => {});
+  }
+  localAudioTracks = [];
+  localAudioPath = [];
+  saveLocalAudioList();
+  renderLocalAudioInfo();
+  renderAudioBrowser();
+  setStatus("Cleared local audio library");
+}
+
+function updateSourceVisibility() {
+  const songSrc = $("song-source") ? $("song-source").value : "sheet";
+  const audioSrc = $("audio-source") ? $("audio-source").value : "local";
+  if ($("sheet-song-settings")) $("sheet-song-settings").hidden = songSrc !== "sheet";
+  if ($("local-song-settings")) $("local-song-settings").hidden = songSrc !== "local";
+  if ($("local-audio-settings")) $("local-audio-settings").hidden = audioSrc !== "local";
+  if ($("drive-audio-settings")) $("drive-audio-settings").hidden = audioSrc !== "drive";
+}
+
 function fillSettingsForm() {
+  if ($("song-source")) $("song-source").value = songSource;
+  if ($("audio-source")) $("audio-source").value = audioSource;
+  updateSourceVisibility();
+  renderLocalSongsInfo();
+  renderLocalAudioInfo();
   $("sheet-id").value = config.sheet.id;
   $("sheet-gid").value = config.sheet.gid;
   $("lines").value = linesPerSlide;
@@ -90,12 +304,15 @@ function fillSettingsForm() {
   $("uppercase").checked = config.theme.uppercase;
   $("show-title").checked = config.theme.showTitle;
   $("esv-key").value = esvKey;
+  renderThemeBgInfo();
   renderBlankImageInfo();
   $("drive-folder").value = driveFolderId ? `https://drive.google.com/drive/folders/${driveFolderId}` : "";
   $("drive-key").value = driveKey;
 }
 
 function readSettingsForm() {
+  if ($("song-source")) songSource = $("song-source").value;
+  if ($("audio-source")) audioSource = $("audio-source").value;
   config.sheet.id = extractSheetId($("sheet-id").value);
   config.sheet.gid = $("sheet-gid").value.trim() || "0";
   linesPerSlide = Math.max(0, Math.min(20, parseInt($("lines").value, 10) || 0));
@@ -106,6 +323,7 @@ function readSettingsForm() {
   t.align = ["left", "center", "right"].includes($("align").value) ? $("align").value : "center";
   t.uppercase = $("uppercase").checked;
   t.showTitle = $("show-title").checked;
+  if ($("theme-bg-dim")) t.backgroundDim = Math.max(0, Math.min(80, parseInt($("theme-bg-dim").value, 10) || 0));
   esvKey = $("esv-key").value.trim();
   const folderText = $("drive-folder").value.trim();
   driveFolderId = extractFolderId(folderText);
@@ -123,6 +341,8 @@ function persist() {
     drive: { folder: driveFolderId },
     theme: config.theme,
     linesPerSlide,
+    songSource,
+    audioSource,
   }));
 }
 
@@ -173,18 +393,39 @@ async function loadFromSheet() {
 async function loadSongs() {
   setStatus("Loading songs…");
   try {
-    if (config.sheet.id) {
+    if (songSource === "local") {
+      const local = loadSavedLocalSongs();
+      if (local && local.length) {
+        songs = local;
+        setStatus(`${songs.length} songs from local library`);
+      } else {
+        songs = (await fetchJson(config.fallbackSongsFile)).songs;
+        setStatus(`${songs.length} songs from ${config.fallbackSongsFile} (local default)`);
+      }
+    } else if (config.sheet.id) {
       songs = await loadFromSheet();
       setStatus(`${songs.length} songs from Google Sheet`);
     } else {
-      songs = (await fetchJson(config.fallbackSongsFile)).songs;
-      setStatus(`${songs.length} songs from ${config.fallbackSongsFile} (no sheet set)`);
+      const local = loadSavedLocalSongs();
+      if (local && local.length) {
+        songs = local;
+        setStatus(`${songs.length} songs from local library`);
+      } else {
+        songs = (await fetchJson(config.fallbackSongsFile)).songs;
+        setStatus(`${songs.length} songs from ${config.fallbackSongsFile} (no sheet set)`);
+      }
     }
   } catch (err) {
     console.error(err);
     try {
-      songs = (await fetchJson(config.fallbackSongsFile)).songs;
-      setStatus(`Sheet unavailable; using ${config.fallbackSongsFile} (${err.message})`);
+      const local = loadSavedLocalSongs();
+      if (local && local.length) {
+        songs = local;
+        setStatus(`Sheet unavailable; using local library (${err.message})`);
+      } else {
+        songs = (await fetchJson(config.fallbackSongsFile)).songs;
+        setStatus(`Sheet unavailable; using ${config.fallbackSongsFile} (${err.message})`);
+      }
     } catch (err2) {
       console.error(err2);
       songs = [];
@@ -551,6 +792,8 @@ function driveErrorText(err) {
 }
 
 function renderDrive() {
+  const summary = $("audio-panel-summary");
+  if (summary) summary.innerHTML = 'Google Drive audio <small>(+ adds to set)</small>';
   $("drive-path").textContent = driveFolderId ? ["Folder", ...drivePath.map((p) => p.name)].join(" / ") : "";
   $("drive-refresh").disabled = !driveFolderId || !driveKey;
   const list = $("drive-files");
@@ -580,7 +823,6 @@ function renderDrive() {
     if (item.kind === "folder") {
       li.addEventListener("click", () => { drivePath.push({ id: item.id, name: item.name }); $("drive-search").value = ""; refreshDrive(true); });
     } else {
-      // Like the song library: clicking does not play. + or double-click adds the track to the audio set list.
       const add = document.createElement("button");
       add.className = "add";
       add.textContent = "+";
@@ -593,8 +835,128 @@ function renderDrive() {
   }
 }
 
+function renderLocalAudio() {
+  const summary = $("audio-panel-summary");
+  if (summary) summary.innerHTML = 'Local audio library <small>(+ adds to set)</small>';
+  $("drive-refresh").disabled = false;
+  driveMessage("");
+
+  const pathText = localAudioPath.length ? ["Local Audio", ...localAudioPath].join(" / ") : "Local Audio";
+  $("drive-path").textContent = localAudioTracks.length ? pathText : "";
+
+  const list = $("drive-files");
+  list.replaceChildren();
+
+  if (!localAudioTracks.length) {
+    const li = document.createElement("li");
+    li.className = "none";
+    li.textContent = "No local audio files loaded. Open Settings (I) to select audio files or a folder.";
+    list.append(li);
+    return;
+  }
+
+  if (localAudioPath.length) {
+    const up = document.createElement("li");
+    up.className = "folder";
+    up.textContent = "\u2190 Back";
+    up.addEventListener("click", () => {
+      localAudioPath.pop();
+      $("drive-search").value = "";
+      renderAudioBrowser();
+    });
+    list.append(up);
+  }
+
+  const query = $("drive-search").value.trim().toLowerCase();
+  if (query) {
+    const matches = localAudioTracks.filter((t) => t.name.toLowerCase().includes(query) || (t.path && t.path.toLowerCase().includes(query)));
+    if (!matches.length) {
+      const none = document.createElement("li");
+      none.className = "none";
+      none.textContent = "No matching audio files";
+      list.append(none);
+      return;
+    }
+    for (const track of matches) {
+      appendLocalAudioLi(list, track);
+    }
+    return;
+  }
+
+  const currentPrefix = localAudioPath.join("/") + (localAudioPath.length ? "/" : "");
+  const foldersInDir = new Set();
+  const filesInDir = [];
+
+  for (const track of localAudioTracks) {
+    let p = track.path || track.name;
+    if (currentPrefix) {
+      if (!p.startsWith(currentPrefix)) continue;
+      p = p.slice(currentPrefix.length);
+    }
+    const parts = p.split("/");
+    if (parts.length > 1) {
+      foldersInDir.add(parts[0]);
+    } else {
+      filesInDir.push(track);
+    }
+  }
+
+  const sortedFolders = Array.from(foldersInDir).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  for (const f of sortedFolders) {
+    const li = document.createElement("li");
+    li.className = "folder";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = `\u{1F4C1} ${f}`;
+    li.append(name);
+    li.addEventListener("click", () => {
+      localAudioPath.push(f);
+      $("drive-search").value = "";
+      renderAudioBrowser();
+    });
+    list.append(li);
+  }
+
+  filesInDir.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  for (const track of filesInDir) {
+    appendLocalAudioLi(list, track);
+  }
+}
+
+function appendLocalAudioLi(list, track) {
+  const li = document.createElement("li");
+  li.className = "audio";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = `\u266A ${trackTitle(track.name)}`;
+  li.append(name);
+
+  const add = document.createElement("button");
+  add.className = "add";
+  add.textContent = "+";
+  add.title = "Add to audio set list";
+  add.addEventListener("click", (e) => { e.stopPropagation(); addToAudioSet({ id: track.id, name: track.name, local: true }); });
+  li.append(add);
+  li.addEventListener("dblclick", (e) => {
+    if (!e.target.closest("button")) addToAudioSet({ id: track.id, name: track.name, local: true });
+  });
+  list.append(li);
+}
+
+function renderAudioBrowser() {
+  if (audioSource === "local") {
+    renderLocalAudio();
+  } else {
+    renderDrive();
+  }
+}
+
 // Loads the listing of the current folder. Without force it does nothing when it is already loaded.
 async function refreshDrive(force) {
+  if (audioSource === "local") {
+    renderLocalAudio();
+    return;
+  }
   if (driveFolderBad) { driveItems = []; renderDrive(); driveMessage("That is not a Google Drive folder link. Fix it in Settings."); return; }
   if (!driveFolderId) { driveItems = []; renderDrive(); driveMessage("Add a Google Drive folder URL in Settings (burger menu)."); return; }
   if (!driveKey) { driveItems = []; renderDrive(); driveMessage("Add a Google API key in Settings to list the folder."); return; }
@@ -620,14 +982,14 @@ async function refreshDrive(force) {
 }
 
 // ---------- Audio set list ----------
-const trackTitle = (name) => name.replace(/\.mp3$/i, "");
+const trackTitle = (name) => name.replace(/\.(mp3|wav|ogg|m4a|aac|flac)$/i, "");
 
 function loadAudioSet() {
   try {
     const raw = JSON.parse(localStorage.getItem(AUDIOSET_KEY));
     audioSet = Array.isArray(raw)
-      ? raw.filter((x) => x && typeof x.id === "string" && isDriveId(x.id) && typeof x.name === "string")
-        .slice(0, MAX_SETLIST).map((x) => ({ id: x.id, name: x.name.slice(0, 300) }))
+      ? raw.filter((x) => x && typeof x.id === "string" && (isDriveId(x.id) || MEDIA_ID_RE.test(x.id)) && typeof x.name === "string")
+        .slice(0, MAX_SETLIST).map((x) => ({ id: x.id, name: x.name.slice(0, 300), local: Boolean(x.local || MEDIA_ID_RE.test(x.id)) }))
       : [];
   } catch {
     audioSet = [];
@@ -640,7 +1002,7 @@ function saveAudioSet() {
 
 function addToAudioSet(item) {
   if (audioSet.length >= MAX_SETLIST) return;
-  audioSet.push({ id: item.id, name: item.name });
+  audioSet.push({ id: item.id, name: item.name, local: Boolean(item.local || MEDIA_ID_RE.test(item.id)) });
   saveAudioSet();
   renderAudioSet();
 }
@@ -671,7 +1033,7 @@ function renderAudioSet() {
   if (!audioSet.length) {
     const li = document.createElement("li");
     li.className = "empty";
-    li.textContent = "Empty. Press + on a Google Drive track to add it.";
+    li.textContent = "Empty. Press + on an audio track to add it.";
     list.append(li);
     return;
   }
@@ -708,7 +1070,7 @@ async function playAudioAt(i) {
   audioIndex = i;
   renderAudioSet();
   $("drive-player").hidden = false;
-  if (track.id === playingId && audioUrl) { // already downloaded: just restart it
+  if (track.id === playingId && audioUrl) { // already loaded: just restart it
     $("drive-now").textContent = trackTitle(track.name);
     audio.currentTime = 0;
     audio.play().catch(() => {});
@@ -716,17 +1078,29 @@ async function playAudioAt(i) {
   }
   $("drive-now").textContent = `Loading ${trackTitle(track.name)}\u2026`;
   try {
-    const blob = await fetchAudio(track.id, driveKey);
-    if (token !== playToken) return; // another track was chosen meanwhile
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
-    audioUrl = URL.createObjectURL(blob);
+    let url = "";
+    if (MEDIA_ID_RE.test(track.id) || track.local) {
+      url = await getMediaUrl(track.id);
+      if (!url) throw new Error("Local audio track not found in storage");
+    } else if (isDriveId(track.id)) {
+      const blob = await fetchAudio(track.id, driveKey);
+      if (token !== playToken) return;
+      if (audioUrl && !playingIsLocal) URL.revokeObjectURL(audioUrl);
+      url = URL.createObjectURL(blob);
+    } else {
+      throw new Error("Invalid track ID");
+    }
+
+    if (token !== playToken) return;
+    audioUrl = url;
     playingId = track.id;
+    playingIsLocal = Boolean(MEDIA_ID_RE.test(track.id) || track.local);
     audio.src = audioUrl;
     $("drive-now").textContent = trackTitle(track.name);
     audio.play().catch(() => { $("drive-now").textContent = `${trackTitle(track.name)} (press play)`; });
   } catch (err) {
     if (token !== playToken) return;
-    $("drive-now").textContent = driveErrorText(err);
+    $("drive-now").textContent = isDriveId(track.id) ? driveErrorText(err) : (err.message || "Could not play audio");
   }
 }
 
@@ -782,6 +1156,9 @@ function usedMediaIds() {
   if (customMedia) { add(customMedia.video); for (const d of customMedia.deck || []) add(d.image); }
   if (song) scan(song);
   add(config && config.theme ? config.theme.blankImage : "");
+  add(config && config.theme ? config.theme.backgroundImage : "");
+  for (const track of localAudioTracks) add(track.id);
+  for (const track of audioSet) if (MEDIA_ID_RE.test(track.id)) add(track.id);
   return keep;
 }
 
@@ -1034,6 +1411,63 @@ async function pickMedia(file) {
     importing = false;
     cleanupMedia();
   }
+}
+
+// ---------- Lyric slides background image ----------
+function renderThemeBgInfo() {
+  const bgId = config && config.theme && config.theme.backgroundImage ? config.theme.backgroundImage : "";
+  const has = Boolean(bgId);
+  const info = $("theme-bg-info");
+  const clearBtn = $("theme-bg-clear");
+  const dimRow = $("theme-bg-dim-row");
+  const preview = $("theme-bg-preview");
+  if (info) info.textContent = has ? "Background image is active on all lyric slides." : "None: using solid background colour.";
+  if (clearBtn) clearBtn.hidden = !has;
+  if (dimRow) dimRow.hidden = !has;
+  if (preview) preview.hidden = !has;
+  if ($("theme-bg-dim")) {
+    $("theme-bg-dim").value = String(config.theme.backgroundDim != null ? config.theme.backgroundDim : 40);
+  }
+  if (has && preview) {
+    getMediaUrl(bgId).then((url) => {
+      if (url && preview) preview.style.backgroundImage = `url("${url}")`;
+    }).catch(() => {});
+  } else if (preview) {
+    preview.style.backgroundImage = "none";
+  }
+}
+
+async function pickThemeBgImage(file) {
+  if (!file) return;
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) { setStatus("Choose a JPG, PNG, WebP or GIF image"); return; }
+  if (file.size > MAX_IMAGE_FILE) { setStatus("Image is too large (15 MB maximum)"); return; }
+  if (importing) { setStatus("Wait for the file to finish importing"); return; }
+  importing = true;
+  try {
+    const id = await putMedia(await imageToJpegBlob(file, 1920));
+    config.theme.backgroundImage = id;
+    if (config.theme.backgroundDim == null) config.theme.backgroundDim = 40;
+    persist();
+    renderThemeBgInfo();
+    publish();
+    setStatus("Lyric slides background image set");
+  } catch (err) {
+    console.error(err);
+    setStatus(describeImportError(err));
+  } finally {
+    importing = false;
+    $("theme-bg-file").value = "";
+  }
+  cleanupMedia();
+}
+
+function clearThemeBgImage() {
+  config.theme.backgroundImage = "";
+  persist();
+  renderThemeBgInfo();
+  publish();
+  setStatus("Lyric slides background image removed");
+  cleanupMedia();
 }
 
 // ---------- Blank screen image ----------
@@ -1381,10 +1815,48 @@ $("prev").addEventListener("click", () => go(-1));
 $("next").addEventListener("click", () => go(1));
 $("blank").addEventListener("click", toggleBlank);
 $("live").addEventListener("click", toggleLive);
+if ($("theme-bg-file")) $("theme-bg-file").addEventListener("change", (e) => pickThemeBgImage(e.target.files[0]));
+if ($("theme-bg-clear")) $("theme-bg-clear").addEventListener("click", clearThemeBgImage);
+if ($("theme-bg-dim")) {
+  $("theme-bg-dim").addEventListener("input", (e) => {
+    config.theme.backgroundDim = Math.max(0, Math.min(80, parseInt(e.target.value, 10) || 0));
+    persist();
+    publish();
+  });
+}
 $("blank-image-file").addEventListener("change", (e) => pickBlankImage(e.target.files[0]));
 $("blank-image-clear").addEventListener("click", clearBlankImage);
 $("drive-refresh").addEventListener("click", () => refreshDrive(true));
-$("drive-search").addEventListener("input", renderDrive);
+$("drive-search").addEventListener("input", renderAudioBrowser);
+
+if ($("song-source")) {
+  $("song-source").addEventListener("change", () => {
+    updateSourceVisibility();
+  });
+}
+if ($("audio-source")) {
+  $("audio-source").addEventListener("change", () => {
+    updateSourceVisibility();
+  });
+}
+if ($("local-songs-file")) {
+  $("local-songs-file").addEventListener("change", (e) => importLocalSongsFile(e.target.files[0]));
+}
+if ($("reset-default-songs")) {
+  $("reset-default-songs").addEventListener("click", resetDefaultSongs);
+}
+if ($("local-audio-folder")) {
+  $("local-audio-folder").addEventListener("change", (e) => importLocalAudioFiles(e.target.files));
+}
+if ($("local-audio-files")) {
+  $("local-audio-files").addEventListener("change", (e) => importLocalAudioFiles(e.target.files));
+}
+if ($("choose-audio-files-btn") && $("local-audio-files")) {
+  $("choose-audio-files-btn").addEventListener("click", () => $("local-audio-files").click());
+}
+if ($("clear-local-audio")) {
+  $("clear-local-audio").addEventListener("click", clearLocalAudio);
+}
 $("aset-prev").addEventListener("click", () => goTrack(-1));
 $("aset-next").addEventListener("click", () => goTrack(1));
 $("aset-clear").addEventListener("click", () => {
@@ -1411,15 +1883,19 @@ $("save-settings").addEventListener("click", async () => {
   const prevId = config.sheet.id, prevGid = config.sheet.gid, prevLines = linesPerSlide;
   const hadTitle = config.theme.showTitle;
   const prevFolder = driveFolderId;
+  const prevSongSrc = songSource;
+  const prevAudioSrc = audioSource;
   readSettingsForm();
   if (prevFolder !== driveFolderId) { drivePath = []; driveLoaded = ""; $("drive-search").value = ""; }
+  if (prevAudioSrc !== audioSource) { $("drive-search").value = ""; }
   persist();
   applyTheme(previewEl, currentTheme());
-  if (prevId !== config.sheet.id || prevGid !== config.sheet.gid) await loadSongs();
+  if (prevId !== config.sheet.id || prevGid !== config.sheet.gid || prevSongSrc !== songSource) await loadSongs();
   if (prevLines !== linesPerSlide || hadTitle !== config.theme.showTitle) rebuildSlides(hadTitle);
   publish();
   setDrawer(false);
   setStatus("Settings saved");
+  renderAudioBrowser();
   refreshDrive(false);
 });
 
@@ -1492,8 +1968,13 @@ const aliveStream = location.protocol.startsWith("http") ? new EventSource("/api
     if (saved.sheet) Object.assign(config.sheet, saved.sheet);
     if (saved.theme) Object.assign(config.theme, saved.theme);
     if (!MEDIA_ID_RE.test(config.theme.blankImage || "")) config.theme.blankImage = "";
+    if (!MEDIA_ID_RE.test(config.theme.backgroundImage || "")) config.theme.backgroundImage = "";
+    if (config.theme.backgroundDim == null) config.theme.backgroundDim = 40;
     linesPerSlide = saved.linesPerSlide || 0;
+    songSource = saved.songSource || (config.sheet.id ? "sheet" : "local");
+    audioSource = saved.audioSource || "local";
     loadSetlist();
+    loadLocalAudioList();
     loadAudioSet();
     loadCustoms();
     esvKey = localStorage.getItem(ESV_KEY_STORAGE) || "";
@@ -1503,7 +1984,7 @@ const aliveStream = location.protocol.startsWith("http") ? new EventSource("/api
     applyTheme(previewEl, currentTheme());
     await loadSongs();
     publish();
-    renderDrive();
+    renderAudioBrowser();
     renderAudioSet();
     refreshDrive(false);
   } catch (err) {

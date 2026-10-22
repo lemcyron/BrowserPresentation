@@ -123,6 +123,32 @@ async function syncBlankImage(screen, theme) {
   if (url) img.src = url; else img.remove();
 }
 
+async function syncBackground(screen, state, theme, token) {
+  if (state.blank) {
+    screen.style.backgroundImage = "none";
+    return;
+  }
+  // 1. Explicit slide background (from custom slide)
+  if (state.bg && BG_RE.test(state.bg)) {
+    const d = Math.max(0, Math.min(80, Number(state.dim) || 0)) / 100;
+    screen.style.backgroundImage = `linear-gradient(rgba(0,0,0,${d}),rgba(0,0,0,${d})), url("${state.bg}")`;
+    return;
+  }
+  // 2. Global background image for all lyric slides (unless playing a video or image slide deck)
+  const bgId = theme && MEDIA_ID_RE.test(theme.backgroundImage || "") ? theme.backgroundImage : "";
+  if (bgId && !state.video && !state.image) {
+    let url = "";
+    try { url = await getMediaUrl(bgId); } catch (err) { console.error(err); }
+    if (token !== screen._renderToken) return;
+    if (url) {
+      const d = Math.max(0, Math.min(80, Number(theme.backgroundDim != null ? theme.backgroundDim : 40))) / 100;
+      screen.style.backgroundImage = `linear-gradient(rgba(0,0,0,${d}),rgba(0,0,0,${d})), url("${url}")`;
+      return;
+    }
+  }
+  screen.style.backgroundImage = "none";
+}
+
 // opts: { mute: true } keeps the video silent (the output window is always silent; the operator preview
 //       plays the sound, because only a window the operator has clicked is allowed to make sound);
 //       { onSoundBlocked } is called when the browser blocks sound.
@@ -130,13 +156,7 @@ export function renderSlide(screen, state, theme, opts = {}) {
   const token = (screen._renderToken = (screen._renderToken || 0) + 1);
   syncMedia(screen, state, opts, token).catch((err) => console.error(err));
   syncBlankImage(screen, theme).catch((err) => console.error(err));
-  // Only validated image data URLs are accepted as a background.
-  if (state.bg && BG_RE.test(state.bg)) {
-    const d = Math.max(0, Math.min(80, Number(state.dim) || 0)) / 100;
-    screen.style.backgroundImage = `linear-gradient(rgba(0,0,0,${d}),rgba(0,0,0,${d})), url("${state.bg}")`;
-  } else {
-    screen.style.backgroundImage = "none";
-  }
+  syncBackground(screen, state, theme, token).catch((err) => console.error(err));
   const inner = screen.querySelector(".inner");
   inner.replaceChildren();
   inner.classList.toggle("title-slide", Boolean(state.isTitle));

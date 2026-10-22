@@ -106,12 +106,12 @@
         </div>
         <div class="tools" id="drive-tools">
           <details class="custom" id="drive-panel" open>
-            <summary>Google Drive audio <small>(+ adds to set)</small></summary>
+            <summary id="audio-panel-summary">Audio library <small>(+ adds to set)</small></summary>
             <div class="drive-head">
               <span class="drive-path" id="drive-path"></span>
               <button id="drive-refresh" type="button" title="Reload the folder listing">Refresh</button>
             </div>
-            <input type="search" id="drive-search" placeholder="Search this folder (A)" title="Press A to jump here" aria-label="Search the Google Drive folder" maxlength="200">
+            <input type="search" id="drive-search" placeholder="Search audio files (A)" title="Press A to jump here" aria-label="Search audio files" maxlength="200">
             <div class="drive-status" id="drive-status" hidden></div>
             <ul class="drive-list" id="drive-files"></ul>
           </details>
@@ -147,16 +147,59 @@
         <button id="menu-close" aria-label="Close settings" title="Close (Esc)">&times;</button>
       </header>
       <div class="body">
-        <label style="font-size:12px;color:var(--muted)">Google Sheet URL or ID
-          <input type="text" id="sheet-id" placeholder="https://docs.google.com/spreadsheets/d/…">
+        <label style="font-size:12px;color:var(--muted);display:block">Song library source
+          <select id="song-source">
+            <option value="sheet">Google Sheet</option>
+            <option value="local">Local Song Library (JSON/CSV)</option>
+          </select>
         </label>
-        <label style="font-size:12px;color:var(--muted);display:block;margin-top:12px">Google Drive folder URL (MP3 files)
-          <input type="text" id="drive-folder" placeholder="https://drive.google.com/drive/folders/…">
+
+        <div id="sheet-song-settings">
+          <label style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Google Sheet URL or ID
+            <input type="text" id="sheet-id" placeholder="https://docs.google.com/spreadsheets/d/…">
+          </label>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Tab gid
+            <input type="text" id="sheet-gid" inputmode="numeric" placeholder="0">
+          </label>
+        </div>
+
+        <div id="local-song-settings" hidden>
+          <label class="field-label" for="local-songs-file" style="margin-top:8px">Import local songs <span>JSON or CSV</span></label>
+          <div class="bg-row">
+            <input type="file" id="local-songs-file" accept=".json,.csv,.txt" title="Import local songs JSON or CSV">
+          </div>
+          <div class="media-info" id="local-songs-info">Using default songs.json</div>
+          <button id="reset-default-songs" type="button" style="margin-top:4px;padding:4px 8px;font-size:12px">Load default songs.json</button>
+        </div>
+
+        <label style="font-size:12px;color:var(--muted);display:block;margin-top:14px">Audio source
+          <select id="audio-source">
+            <option value="local">Local Audio Library</option>
+            <option value="drive">Google Drive</option>
+          </select>
         </label>
-        <label style="font-size:12px;color:var(--muted);display:block;margin-top:12px">Google API key (for the Drive folder)
-          <input type="password" id="drive-key" autocomplete="off" spellcheck="false" placeholder="Key from console.cloud.google.com, Drive API enabled">
-        </label>
-        <label style="font-size:12px;color:var(--muted);display:block;margin-top:12px">ESV API key
+
+        <div id="local-audio-settings">
+          <label class="field-label" for="local-audio-folder" style="margin-top:8px">Local audio folder or files <span>MP3, WAV, OGG, M4A, FLAC</span></label>
+          <div class="bg-row" style="margin-bottom:6px">
+            <input type="file" id="local-audio-folder" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac" webkitdirectory multiple title="Choose audio folder">
+            <input type="file" id="local-audio-files" accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac" multiple title="Choose audio files" hidden>
+            <button id="choose-audio-files-btn" type="button" title="Choose individual audio files">Pick files</button>
+          </div>
+          <div class="media-info" id="local-audio-info">No local audio files loaded.</div>
+          <button id="clear-local-audio" type="button" style="margin-top:4px;padding:4px 8px;font-size:12px" hidden>Clear local audio</button>
+        </div>
+
+        <div id="drive-audio-settings" hidden>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Google Drive folder URL (MP3 files)
+            <input type="text" id="drive-folder" placeholder="https://drive.google.com/drive/folders/…">
+          </label>
+          <label style="font-size:12px;color:var(--muted);display:block;margin-top:8px">Google API key (for the Drive folder)
+            <input type="password" id="drive-key" autocomplete="off" spellcheck="false" placeholder="Key from console.cloud.google.com, Drive API enabled">
+          </label>
+        </div>
+
+        <label style="font-size:12px;color:var(--muted);display:block;margin-top:14px">ESV API key
           <input type="password" id="esv-key" autocomplete="off" spellcheck="false" placeholder="Token from api.esv.org">
         </label>
         <div class="settings">
@@ -176,6 +219,18 @@
           </label>
           <label class="inline"><input type="checkbox" id="uppercase"> Uppercase</label>
           <label class="inline"><input type="checkbox" id="show-title"> Title slide at start of each song</label>
+        </div>
+        <div class="blank-setting">
+          <label class="field-label" for="theme-bg-file">Lyric slides background image <span>JPG, PNG, WebP or GIF</span></label>
+          <div class="bg-row">
+            <input type="file" id="theme-bg-file" accept="image/jpeg,image/png,image/webp,image/gif" title="Background image for all lyric slides">
+            <button id="theme-bg-clear" type="button" hidden>Remove</button>
+          </div>
+          <div class="bg-thumb" id="theme-bg-preview" hidden></div>
+          <label class="bg-dim" id="theme-bg-dim-row" hidden>Darken image
+            <input type="range" id="theme-bg-dim" min="0" max="80" step="5" value="40">
+          </label>
+          <div class="media-info" id="theme-bg-info">None: using solid background colour.</div>
         </div>
         <div class="blank-setting">
           <label class="field-label" for="blank-image-file">Blank screen image <span>JPG, PNG, WebP or GIF</span></label>
