@@ -144,7 +144,10 @@
     <aside class="drawer" id="drawer" role="dialog" aria-label="Settings" hidden>
       <header class="row">
         <span>Settings</span>
-        <button id="menu-close" aria-label="Close settings" title="Close (Esc)">&times;</button>
+        <div class="row-actions">
+          <button id="save-settings" class="primary" title="Save settings">Save settings</button>
+          <button id="menu-close" aria-label="Close settings" title="Close (Esc)">&times;</button>
+        </div>
       </header>
       <div class="body">
         <!-- Group 1: Song Library -->
@@ -264,7 +267,6 @@
           Jump to a field: L library search, A Google Drive search, C custom slide name, B Bible reference. Esc folds the Custom slide, Bible and Google Drive boxes (and leaves the field).
           Pressing next on the last slide of a set list song moves to the next song.
         </p>
-        <button id="save-settings">Save settings</button>
       </div>
     </aside>
   </div>

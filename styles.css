@@ -98,7 +98,9 @@ input[type="text"], input[type="password"], input[type="search"], input[type="nu
   font-weight: 600;
 }
 .drawer header.row { display: flex; justify-content: space-between; align-items: center; }
-.drawer header button { padding: 0 10px; font-size: 20px; line-height: 28px; }
+.drawer header .row-actions { display: flex; align-items: center; gap: 8px; }
+.drawer header button#save-settings { padding: 4px 12px; font-size: 13px; font-weight: 600; line-height: 20px; }
+.drawer header button#menu-close { padding: 0 8px; font-size: 20px; line-height: 26px; }
 .drawer .body { flex: 1; overflow-y: auto; padding: 12px; }
 #status { color: var(--muted); font-size: 12px; }
 
