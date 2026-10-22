@@ -26,14 +26,21 @@ def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]
 
 
-def convert_pptx_to_images(pptx_bytes):
-    temp_dir = tempfile.mkdtemp(prefix="pptx_conv_")
+def convert_presentation_to_images(pres_bytes, filename=""):
+    ext = os.path.splitext(filename)[1].lower() if filename else ""
+    if ext not in (".pptx", ".ppsx", ".odp"):
+        if b"mimetypeapplication/vnd.oasis.opendocument.presentation" in pres_bytes[:200] or b"content.xml" in pres_bytes:
+            ext = ".odp"
+        else:
+            ext = ".pptx"
+
+    temp_dir = tempfile.mkdtemp(prefix="pres_conv_")
     try:
-        input_file = os.path.join(temp_dir, "input.pptx")
+        input_file = os.path.join(temp_dir, f"input{ext}")
         export_dir = os.path.join(temp_dir, "slides")
         os.makedirs(export_dir, exist_ok=True)
         with open(input_file, "wb") as f:
-            f.write(pptx_bytes)
+            f.write(pres_bytes)
 
         if sys.platform == "win32":
             abs_input = os.path.abspath(input_file)
@@ -66,7 +73,27 @@ try {{
                 timeout=90,
             )
             if proc.returncode != 0:
-                raise RuntimeError(f"PowerPoint export failed: {proc.stderr.strip() or proc.stdout.strip()}")
+                soffice = shutil.which("soffice") or shutil.which("libreoffice")
+                if soffice:
+                    proc_lo = subprocess.run(
+                        [soffice, "--headless", "--convert-to", "pdf", input_file, "--outdir", export_dir],
+                        capture_output=True,
+                        text=True,
+                        timeout=90,
+                    )
+                    pdf_path = os.path.join(export_dir, f"input.pdf")
+                    pdftoppm = shutil.which("pdftoppm")
+                    if proc_lo.returncode == 0 and os.path.exists(pdf_path) and pdftoppm:
+                        subprocess.run(
+                            [pdftoppm, "-jpeg", "-r", "150", pdf_path, os.path.join(export_dir, "slide")],
+                            capture_output=True,
+                            text=True,
+                            timeout=90,
+                        )
+                    else:
+                        raise RuntimeError(f"Presentation export failed: {proc.stderr.strip() or proc.stdout.strip()}")
+                else:
+                    raise RuntimeError(f"Presentation export failed: {proc.stderr.strip() or proc.stdout.strip()}")
         else:
             soffice = shutil.which("soffice") or shutil.which("libreoffice")
             if not soffice:
@@ -79,7 +106,7 @@ try {{
             )
             if proc.returncode != 0:
                 raise RuntimeError(f"LibreOffice conversion failed: {proc.stderr.strip()}")
-            pdf_path = os.path.join(export_dir, "input.pdf")
+            pdf_path = os.path.join(export_dir, f"input.pdf")
             if not os.path.exists(pdf_path):
                 raise RuntimeError("Failed to generate PDF from presentation")
             pdftoppm = shutil.which("pdftoppm")
@@ -111,6 +138,9 @@ try {{
         return images
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+convert_pptx_to_images = convert_presentation_to_images
 
 
 # The index page keeps one connection open to /api/alive while it is open. When the last one closes, the
@@ -203,12 +233,12 @@ class PresentationHandler(SimpleHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/api/esv":
             self.handle_esv_proxy()
-        elif self.path == "/api/convert-pptx":
-            self.handle_pptx_convert()
+        elif self.path in ("/api/convert-pptx", "/api/convert-presentation"):
+            self.handle_presentation_convert()
         else:
             self.send_error(404)
 
-    def handle_pptx_convert(self):
+    def handle_presentation_convert(self):
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
             self.send_json_response({"error": "Empty file"}, 400)
@@ -218,19 +248,29 @@ class PresentationHandler(SimpleHTTPRequestHandler):
             return
 
         try:
-            pptx_bytes = self.rfile.read(content_length)
+            pres_bytes = self.rfile.read(content_length)
         except Exception as e:
             self.send_json_response({"error": f"Failed to read upload: {e}"}, 400)
             return
 
+        filename = ""
+        x_filename = self.headers.get("X-Filename")
+        if x_filename:
+            try:
+                filename = urllib.parse.unquote(x_filename)
+            except Exception:
+                filename = x_filename
+
         try:
-            images = convert_pptx_to_images(pptx_bytes)
+            images = convert_presentation_to_images(pres_bytes, filename=filename)
             if not images:
                 self.send_json_response({"error": "No slides were exported from the presentation"}, 400)
                 return
             self.send_json_response({"success": True, "slides": images, "count": len(images)})
         except Exception as e:
-            self.send_json_response({"error": f"PowerPoint conversion error: {e}"}, 500)
+            self.send_json_response({"error": f"Presentation conversion error: {e}"}, 500)
+
+    handle_pptx_convert = handle_presentation_convert
 
     def handle_esv_proxy(self):
         content_length = int(self.headers.get("Content-Length", 0))

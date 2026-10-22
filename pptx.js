@@ -1,12 +1,17 @@
-// Reads a PowerPoint (.pptx / .ppsx) file in the browser: slide order, text, and the largest picture per slide.
-// A .pptx is a zip of XML parts, so this includes a small zip reader built on the browser's DecompressionStream.
+// Reads a PowerPoint (.pptx / .ppsx) or OpenDocument (.odp) presentation in the browser: slide order, text, and the largest picture per slide.
+// A .pptx or .odp is a zip of XML parts, so this includes a small zip reader built on the browser's DecompressionStream.
 // Not supported: shapes, charts, animations, embedded video and legacy .ppt files.
 import { ImportError } from "./media.js";
 
 const A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main";
 const R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
-const MAX_FILE = 200 * 1024 * 1024;      // whole .pptx
+const ODF_DRAW_NS = "urn:oasis:names:tc:opendocument:xmlns:drawing:1.0";
+const ODF_TEXT_NS = "urn:oasis:names:tc:opendocument:xmlns:text:1.0";
+const ODF_XLINK_NS = "http://www.w3.org/1999/xlink";
+const ODF_PRES_NS = "urn:oasis:names:tc:opendocument:xmlns:presentation:1.0";
+
+const MAX_FILE = 200 * 1024 * 1024;      // whole presentation
 const MAX_ENTRIES = 5000;
 const MAX_XML = 5 * 1024 * 1024;         // per XML part, after decompression
 const MAX_PICTURE = 40 * 1024 * 1024;    // per picture, after decompression
@@ -21,20 +26,20 @@ async function readZipDirectory(file) {
   for (let i = tailLen - 22; i >= 0; i--) {
     if (tail.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
   }
-  if (eocd < 0) throw new ImportError("This is not a valid .pptx file");
+  if (eocd < 0) throw new ImportError("This is not a valid presentation file");
 
   const count = tail.getUint16(eocd + 10, true);
   const cdSize = tail.getUint32(eocd + 12, true);
   const cdOffset = tail.getUint32(eocd + 16, true);
   if (count === 0xffff || cdOffset === 0xffffffff) throw new ImportError("Zip64 files are not supported");
-  if (count > MAX_ENTRIES || cdOffset + cdSize > file.size) throw new ImportError("This .pptx file looks damaged");
+  if (count > MAX_ENTRIES || cdOffset + cdSize > file.size) throw new ImportError("This presentation file looks damaged");
 
   const cd = new DataView(await file.slice(cdOffset, cdOffset + cdSize).arrayBuffer());
   const decoder = new TextDecoder();
   const entries = new Map();
   let p = 0;
   for (let n = 0; n < count; n++) {
-    if (p + 46 > cd.byteLength || cd.getUint32(p, true) !== 0x02014b50) throw new ImportError("This .pptx file looks damaged");
+    if (p + 46 > cd.byteLength || cd.getUint32(p, true) !== 0x02014b50) throw new ImportError("This presentation file looks damaged");
     const nameLen = cd.getUint16(p + 28, true);
     const extraLen = cd.getUint16(p + 30, true);
     const commentLen = cd.getUint16(p + 32, true);
@@ -57,13 +62,13 @@ async function readEntry(file, entry, maxSize) {
   if (entry.usize > maxSize) throw new ImportError("A part of this presentation is too large");
 
   const lh = new DataView(await file.slice(entry.offset, entry.offset + 30).arrayBuffer());
-  if (lh.getUint32(0, true) !== 0x04034b50) throw new ImportError("This .pptx file looks damaged");
+  if (lh.getUint32(0, true) !== 0x04034b50) throw new ImportError("This presentation file looks damaged");
   const start = entry.offset + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
   const raw = file.slice(start, start + entry.csize);
 
   if (entry.method === 0) return new Uint8Array(await raw.arrayBuffer());
-  if (entry.method !== 8) throw new ImportError("Unsupported compression in this .pptx file");
-  if (typeof DecompressionStream === "undefined") throw new ImportError("This browser cannot read .pptx files. Use a current Chrome, Edge, Firefox or Safari.");
+  if (entry.method !== 8) throw new ImportError("Unsupported compression in this presentation file");
+  if (typeof DecompressionStream === "undefined") throw new ImportError("This browser cannot read presentation files. Use a current Chrome, Edge, Firefox or Safari.");
 
   const reader = raw.stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
   const chunks = [];
@@ -97,7 +102,7 @@ function ext(path) { return path.includes(".") ? path.slice(path.lastIndexOf("."
 
 function parseXml(bytes) {
   const doc = new DOMParser().parseFromString(new TextDecoder().decode(bytes), "application/xml");
-  if (doc.getElementsByTagName("parsererror").length) throw new ImportError("This .pptx file contains unreadable XML");
+  if (doc.getElementsByTagName("parsererror").length) throw new ImportError("This presentation file contains unreadable XML");
   return doc;
 }
 
@@ -158,15 +163,96 @@ function slideText(doc) {
   return lines.join("\n");
 }
 
+function odpParagraphText(p) {
+  let out = "";
+  const walk = (node) => {
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) {
+        out += child.textContent;
+      } else if (child.nodeType === 1) {
+        const local = child.localName;
+        if (local === "line-break") {
+          out += "\n";
+        } else if (local === "s") {
+          const c = parseInt(child.getAttributeNS(ODF_TEXT_NS, "c") || child.getAttribute("text:c") || child.getAttribute("c") || "1", 10);
+          out += " ".repeat(isNaN(c) || c < 1 ? 1 : c);
+        } else if (local === "tab") {
+          out += "\t";
+        } else {
+          walk(child);
+        }
+      }
+    }
+  };
+  walk(p);
+  return out.trim();
+}
+
+function isOdpFurniture(p) {
+  for (let n = p; n; n = n.parentNode) {
+    if (n.nodeType === 1) {
+      const cls = n.getAttributeNS(ODF_PRES_NS, "class") || n.getAttribute("presentation:class") || "";
+      if (cls === "header" || cls === "footer" || cls === "page-number" || cls === "date-time") {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function odpSlideText(pageNode) {
+  const lines = [];
+  const paragraphs = pageNode.getElementsByTagName ? pageNode.getElementsByTagName("*") : [];
+  for (const p of paragraphs) {
+    const local = p.localName;
+    if (local !== "p" && local !== "h") continue;
+    if (isOdpFurniture(p)) continue;
+    const text = odpParagraphText(p);
+    if (text) lines.push(text);
+  }
+  return lines.join("\n");
+}
+
 // ---------- public API ----------
 // Returns { slides: [{ text, picture: Blob|null }] }. Throws an Error with a user-readable message.
 export async function readPresentation(file) {
   const name = file.name.toLowerCase();
   if (name.endsWith(".ppt")) throw new ImportError("Old .ppt files are not supported. In PowerPoint use Save As and choose .pptx.");
-  if (!/\.(pptx|ppsx)$/.test(name)) throw new ImportError("Choose a .pptx or .ppsx file");
+  if (!/\.(pptx|ppsx|odp)$/.test(name)) throw new ImportError("Choose a .pptx, .ppsx, or .odp file");
   if (file.size > MAX_FILE) throw new ImportError("This presentation is too large (200 MB maximum)");
 
   const entries = await readZipDirectory(file);
+
+  if (name.endsWith(".odp") || entries.has("content.xml")) {
+    const content = await readXml(file, entries, "content.xml");
+    if (!content) throw new ImportError("This does not look like a valid OpenDocument presentation");
+
+    const pages = content.getElementsByTagNameNS ? content.getElementsByTagNameNS("*", "page") : content.getElementsByTagName("draw:page");
+    const pageNodes = Array.from(pages).filter((p) => p.localName === "page");
+    if (!pageNodes.length) throw new ImportError("No slides were found in this presentation");
+    if (pageNodes.length > MAX_SLIDES) throw new ImportError(`Too many slides (${MAX_SLIDES} maximum)`);
+
+    const slides = [];
+    for (const page of pageNodes) {
+      let best = null;
+      const images = page.getElementsByTagNameNS ? page.getElementsByTagNameNS("*", "image") : page.getElementsByTagName("draw:image");
+      for (const img of images) {
+        if (img.localName !== "image") continue;
+        const href = img.getAttributeNS(ODF_XLINK_NS, "href") || img.getAttribute("xlink:href") || img.getAttribute("href") || "";
+        if (!href) continue;
+        const decodedHref = decodeURIComponent(href).replace(/^\.\//, "").replace(/^\//, "");
+        const entry = entries.get(decodedHref) || entries.get(href);
+        const type = PICTURE_TYPES[ext(decodedHref)];
+        if (entry && type && entry.usize <= MAX_PICTURE && (!best || entry.usize > best.entry.usize)) {
+          best = { entry, type };
+        }
+      }
+      const picture = best ? new Blob([await readEntry(file, best.entry, MAX_PICTURE)], { type: best.type }) : null;
+      slides.push({ text: odpSlideText(page), picture });
+    }
+    return { slides };
+  }
+
   const presentation = await readXml(file, entries, "ppt/presentation.xml");
   if (!presentation) throw new ImportError("This does not look like a PowerPoint presentation");
   const presRels = await readRels(file, entries, "ppt/presentation.xml");

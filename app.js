@@ -1143,7 +1143,7 @@ function loadCustoms() {
 
 function customLabel(s) {
   if (s.video) return "Video";
-  if (s.deck && s.deck.length) return `PowerPoint (${s.deck.length} slides)`;
+  if (s.deck && s.deck.length) return `Presentation (${s.deck.length} slides)`;
   return s.esv ? "Bible (ESV)" : "Custom slide";
 }
 
@@ -1183,7 +1183,7 @@ function saveCustoms() {
 function readCustomForm() {
   const lyrics = $("custom-text").value.slice(0, MAX_CUSTOM_TEXT);
   if (importing) { setStatus("Wait for the file to finish importing"); return null; }
-  if (!lyrics.trim() && !customBg && !customMedia) { setStatus("Type some text, or choose an image, video or PowerPoint first"); return null; }
+  if (!lyrics.trim() && !customBg && !customMedia) { setStatus("Type some text, or choose an image, video or presentation first"); return null; }
   const title = $("custom-title").value.trim().slice(0, 300) || (customMedia && customMedia.name) || "Custom slide";
   const dim = Math.max(0, Math.min(80, parseInt($("custom-dim").value, 10) || 0));
   const m = customMedia || {};
@@ -1202,7 +1202,7 @@ function renderMediaInfo() {
   if (!m) { info.textContent = ""; return; }
   info.textContent = m.video
     ? `Video: ${m.name}. The lyrics box is used as an optional caption.`
-    : `PowerPoint: ${m.name} (${m.deck.length} slides). The lyrics box is ignored.`;
+    : `Presentation: ${m.name} (${m.deck.length} slides). The lyrics box is ignored.`;
 }
 
 function renderBgPreview() {
@@ -1277,12 +1277,12 @@ async function pickBackground(file) {
   }
 }
 
-// Automatically exports PowerPoint slides as images, saves to library, and adds to set list.
-async function importPowerPoint(file) {
+// Automatically exports presentation slides as images, saves to library, and adds to set list.
+async function importPresentation(file) {
   if (!file) return;
   const name = file.name.toLowerCase();
   if (name.endsWith(".ppt")) throw new ImportError("Old .ppt files are not supported. In PowerPoint use Save As and choose .pptx.");
-  if (!/\.(pptx|ppsx)$/.test(name)) throw new ImportError("Choose a .pptx or .ppsx file");
+  if (!/\.(pptx|ppsx|odp)$/.test(name)) throw new ImportError("Choose a .pptx, .ppsx or .odp file");
   if (file.size > 200 * 1024 * 1024) throw new ImportError("This presentation is too large (200 MB maximum)");
 
   if (importing) { setStatus("Wait for the file to finish importing"); return; }
@@ -1296,7 +1296,10 @@ async function importPowerPoint(file) {
     try {
       const res = await fetch("/api/convert-pptx", {
         method: "POST",
-        headers: { "Content-Type": "application/octet-stream" },
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Filename": encodeURIComponent(file.name),
+        },
         body: file,
       });
       if (res.ok) {
@@ -1313,10 +1316,10 @@ async function importPowerPoint(file) {
         }
       } else {
         const errData = await res.json().catch(() => null);
-        console.warn("Server PPTX conversion failed:", errData || res.statusText);
+        console.warn("Server presentation conversion failed:", errData || res.statusText);
       }
     } catch (netErr) {
-      console.warn("Could not reach /api/convert-pptx, falling back to client parser:", netErr);
+      console.warn("Could not reach conversion server, falling back to client parser:", netErr);
     }
 
     if (!convertedOnServer) {
@@ -1334,7 +1337,7 @@ async function importPowerPoint(file) {
 
     if (!deck.some((d) => d.text || d.image)) throw new ImportError("No slides were found in this presentation");
 
-    const rawTitle = file.name.replace(/\.[^/.]+$/, "").trim() || "PowerPoint Presentation";
+    const rawTitle = file.name.replace(/\.[^/.]+$/, "").trim() || "Presentation";
     const title = rawTitle.slice(0, 300);
     const s = {
       title,
@@ -1377,16 +1380,18 @@ async function importPowerPoint(file) {
   }
 }
 
-// Stores a chosen video or PowerPoint in IndexedDB and shows it in the editor.
+const importPowerPoint = importPresentation;
+
+// Stores a chosen video or presentation in IndexedDB and shows it in the editor.
 async function pickMedia(file) {
   if (!file) return;
   const name = file.name.toLowerCase();
-  const isDeck = /\.(pptx|ppsx|ppt)$/.test(name);
+  const isDeck = /\.(pptx|ppsx|ppt|odp)$/.test(name);
   const isVideo = file.type.startsWith("video/") || /\.(mp4|webm|ogv|mov|m4v)$/.test(name);
-  if (!isDeck && !isVideo) { setStatus("Choose a video (MP4, WebM, MOV) or a PowerPoint (.pptx)"); $("custom-media-file").value = ""; return; }
+  if (!isDeck && !isVideo) { setStatus("Choose a video (MP4, WebM, MOV) or a presentation (.pptx, .odp)"); $("custom-media-file").value = ""; return; }
 
   if (isDeck) {
-    await importPowerPoint(file);
+    await importPresentation(file);
     return;
   }
 
@@ -1793,7 +1798,7 @@ const pptxImportBtn = $("pptx-import-btn");
 const pptxFileInput = $("pptx-file");
 if (pptxImportBtn && pptxFileInput) {
   pptxImportBtn.addEventListener("click", () => pptxFileInput.click());
-  pptxFileInput.addEventListener("change", (e) => importPowerPoint(e.target.files[0]));
+  pptxFileInput.addEventListener("change", (e) => importPresentation(e.target.files[0]));
 }
 $("custom-media-file").addEventListener("change", (e) => pickMedia(e.target.files[0]));
 $("custom-media-clear").addEventListener("click", () => {

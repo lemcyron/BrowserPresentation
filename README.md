@@ -49,8 +49,8 @@ Each song starts with a title slide (song title, with the author underneath if s
 | `styles.css` | All styling and screen themes |
 | `app.js` | Sheet loading, slide splitting, controls |
 | `screen.js` | Shared slide renderer (text, pictures, video) |
-| `media.js` | Browser storage (IndexedDB) for videos and PowerPoint pictures |
-| `pptx.js` | PowerPoint (.pptx/.ppsx) reader |
+| `media.js` | Browser storage (IndexedDB) for videos and presentation pictures |
+| `pptx.js` | Presentation (.pptx/.ppsx/.odp) reader |
 | `drive.js` | Google Drive folder listing and MP3 download |
 | `config.json` | Sheet ID/columns and default theme |
 | `songs.json` | Offline fallback songs |
@@ -64,9 +64,9 @@ Open **Custom slide** under the **Library** and type your own text (a blank line
 - **Background image:** choose a JPG, PNG, WebP or GIF file under the text. It is scaled down (max 1600 px) and stored as a JPEG inside the slide, so it works offline and appears on the output window. Use the **Darken image** slider to keep the text readable. The text can be left empty for an image-only slide. **Remove image** clears it.
 - Custom slides have no title slide and are stored in browser localStorage, like the set list. Browsers limit localStorage to roughly 5 MB, so expect room for about 10 to 20 images; the app tells you if saving fails.
 
-## Video and PowerPoint
+## Video and Presentations
 
-In the **Custom slide** editor, use the **Video or PowerPoint** file picker.
+In the **Custom slide** editor, use the **Video or Presentation** file picker.
 
 **Video** (MP4/H.264 is the safest choice; WebM, Ogg and MOV work if your browser can play them; up to 2 GB)
 - The video becomes one slide. Any text you type is drawn over it.
@@ -74,10 +74,10 @@ In the **Custom slide** editor, use the **Video or PowerPoint** file picker.
 - Pressing `.` (blank) pauses the video and hides it; un-blanking resumes it.
 - Video sound plays from the **operator window** (the preview), not the output window. Browsers block sound in a window nobody has clicked, so the output window is always silent and needs no click. Use the computer's speakers, or make sure the sound goes to the same device as the projector. The preview is muted while **Live** is off. Sound and picture are two separate players, so they can drift apart slightly. Tick **Mute** in the editor for silent clips.
 
-**PowerPoint** (`.pptx` or `.ppsx`, up to 200 MB and 300 slides)
-- Click **+ PowerPoint** in the Library header (or choose a `.pptx` file under Custom slide).
+**Presentations** (`.pptx`, `.ppsx`, or `.odp`, up to 200 MB and 300 slides)
+- Click **+ Presentation** in the Library header (or choose a presentation file under Custom slide).
 - Slides are automatically rendered and exported as full-resolution images (preserving all formatting, shapes, fonts, and backgrounds) and added directly to your Set List and Library.
-- Old `.ppt` files are not supported; in PowerPoint use *Save As* and choose `.pptx`. Password-protected files are rejected.
+- Old `.ppt` files are not supported; in PowerPoint use *Save As* and choose `.pptx` or `.odp`. Password-protected files are rejected.
 
 Videos and pictures are stored in the browser (IndexedDB), not in the set list or in localStorage, so they are only available in the browser and on the computer where you imported them. Clearing site data removes them. If the browser's storage is full you will see a message. Files that are no longer used by any custom slide are removed automatically.
 
