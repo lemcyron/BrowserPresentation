@@ -599,7 +599,7 @@ function renderSetlist() {
 }
 
 function exportSetlist() {
-  const blob = new Blob([JSON.stringify({ setlist }, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify({ setlist, audioSet }, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -618,7 +618,17 @@ async function importSetlist(file) {
     setIndex = -1;
     saveSetlist();
     renderSetlist();
-    setStatus(`Imported ${items.length} songs into the set list`);
+    const rawAudio = Array.isArray(data.audioSet) ? data.audioSet : [];
+    const audioItems = rawAudio
+      .filter((x) => x && typeof x.id === "string" && (isDriveId(x.id) || MEDIA_ID_RE.test(x.id)) && typeof x.name === "string")
+      .slice(0, MAX_SETLIST)
+      .map((x) => ({ id: x.id, name: x.name.slice(0, 300), local: Boolean(x.local || MEDIA_ID_RE.test(x.id)) }));
+    audioSet = audioItems;
+    audioIndex = -1;
+    saveAudioSet();
+    renderAudioSet();
+    const audioMsg = audioItems.length ? `, ${audioItems.length} audio track${audioItems.length !== 1 ? "s" : ""}` : "";
+    setStatus(`Imported ${items.length} song${items.length !== 1 ? "s" : ""}${audioMsg} into the set list`);
   } catch {
     setStatus("Could not read set list file");
   }
@@ -791,6 +801,34 @@ function driveErrorText(err) {
   return "Something went wrong with Google Drive";
 }
 
+async function downloadDriveAudio(item, btn) {
+  if (!driveKey) {
+    driveMessage("Add a Google API key in Settings to download files.");
+    return;
+  }
+  const prevText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "\u2026";
+  driveMessage(`Downloading ${item.name}\u2026`);
+  try {
+    const blob = await fetchAudio(item.id, driveKey);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = /\.mp3$/i.test(item.name) ? item.name : `${item.name}.mp3`;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    driveMessage("");
+  } catch (err) {
+    driveMessage(driveErrorText(err));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevText;
+  }
+}
+
 function renderDrive() {
   const summary = $("audio-panel-summary");
   if (summary) summary.innerHTML = 'Google Drive audio <small>(+ adds to set)</small>';
@@ -823,6 +861,16 @@ function renderDrive() {
     if (item.kind === "folder") {
       li.addEventListener("click", () => { drivePath.push({ id: item.id, name: item.name }); $("drive-search").value = ""; refreshDrive(true); });
     } else {
+      const download = document.createElement("button");
+      download.className = "add";
+      download.textContent = "\u2913";
+      download.title = "Download audio file locally";
+      download.addEventListener("click", (e) => {
+        e.stopPropagation();
+        downloadDriveAudio(item, download);
+      });
+      li.append(download);
+
       const add = document.createElement("button");
       add.className = "add";
       add.textContent = "+";
@@ -1881,7 +1929,80 @@ $("set-file").addEventListener("change", (e) => {
   e.target.value = "";
 });
 async function reloadSheet() { readSettingsForm(); await loadSongs(); }
-function openOutput() { window.open("output.html", "presentation-output", "popup,width=1280,height=720"); }
+// Opens the output window. When a second display (e.g. HDMI) is attached, the window is opened on that display and
+// output.html goes fullscreen there. Needs the browser's "window management" permission (Chrome/Edge ask once).
+let outputWin = null;
+let screenDetails = null;
+async function loadScreenDetails() {
+  if (screenDetails) return screenDetails;
+  if (!window.screen.isExtended || typeof window.getScreenDetails !== "function") return null;
+  try { screenDetails = await window.getScreenDetails(); } catch (err) { console.error(err); }
+  return screenDetails;
+}
+// The display this window is not on (prefers a non-primary one).
+function externalScreen() {
+  if (!screenDetails) return null;
+  const others = screenDetails.screens.filter((s) => s !== screenDetails.currentScreen);
+  return others.find((s) => !s.isPrimary) || others[0] || null;
+}
+let fullscreenPending = false; // set once the output window is on the external display; sent when it says hello
+// Where the output window was last seen (saved by output.html): monitor position, size and whether it was fullscreen.
+function savedOutputPosition() {
+  try {
+    const p = JSON.parse(localStorage.getItem("presentation-output-pos"));
+    if (p && [p.left, p.top, p.w, p.h].every(Number.isFinite) && p.w > 0 && p.h > 0) return p;
+  } catch (err) { /* ignore */ }
+  return null;
+}
+function openOutput() {
+  const extended = window.screen.isExtended;
+  const saved = extended ? savedOutputPosition() : null; // a saved external-display position is meaningless when it is unplugged
+  // Reopen exactly where the output window was last placed. For a monitor other than this one the browser only honours
+  // the position once the window-management permission is granted, so it is also applied with moveTo below.
+  const features = saved
+    ? `popup,left=${saved.left},top=${saved.top},width=${saved.w},height=${saved.h}`
+    : "popup,width=1280,height=720";
+  // window.open must run straight from the click, before any await, or the browser blocks the popup.
+  const win = window.open("output.html", "presentation-output", features);
+  if (!win) return false; // blocked by the popup blocker
+  outputWin = win;
+  if (saved) {
+    try { win.moveTo(saved.left, saved.top); } catch (err) { console.error(err); }
+    if (saved.fs) { fullscreenPending = true; setTimeout(() => channel.postMessage({ cmd: "fullscreen" }), 300); }
+  } else if (extended) {
+    // First use: once the display list is available (this waits for the permission prompt), move the window
+    // onto the external display and tell it to go fullscreen.
+    loadScreenDetails().then(() => {
+      const target = externalScreen();
+      if (!target || win.closed) {
+        setStatus("Could not find the external display. Allow window management for this site, or drag the output window there once");
+        return;
+      }
+      win.moveTo(Math.round(target.availLeft), Math.round(target.availTop));
+      win.resizeTo(Math.round(target.availWidth), Math.round(target.availHeight));
+      fullscreenPending = true;
+      setTimeout(() => channel.postMessage({ cmd: "fullscreen" }), 300);
+    }).catch((err) => console.error(err));
+  }
+  return true;
+}
+// When an external display is attached, open the output automatically. Browsers only allow pop-ups after a click or key press,
+// so if the automatic attempt is blocked, the next click or key press anywhere in this window opens it.
+function autoOpenOnExternalDisplay() {
+  if (!window.screen.isExtended) return;
+  loadScreenDetails(); // asks for the permission early so the first Open output click can place the window right away
+  if (outputWin && !outputWin.closed) return;
+  if (openOutput()) return;
+  const retry = () => {
+    document.removeEventListener("pointerdown", retry, true);
+    document.removeEventListener("keydown", retry, true);
+    if (window.screen.isExtended && !(outputWin && !outputWin.closed)) openOutput();
+  };
+  document.addEventListener("pointerdown", retry, true);
+  document.addEventListener("keydown", retry, true);
+  setStatus("External display detected. Click anywhere (or press a key) to open the output on it");
+}
+window.screen.addEventListener?.("change", autoOpenOnExternalDisplay);
 $("reload").addEventListener("click", reloadSheet);
 $("open-output").addEventListener("click", openOutput);
 $("save-settings").addEventListener("click", async () => {
@@ -1952,7 +2073,10 @@ document.addEventListener("keydown", (e) => {
 });
 
 channel.onmessage = (e) => {
-  if (e.data && e.data.hello) publish();
+  if (e.data && e.data.hello) {
+    publish();
+    if (fullscreenPending) { fullscreenPending = false; channel.postMessage({ cmd: "fullscreen" }); }
+  }
 };
 
 // ---------- Init ----------
@@ -1992,6 +2116,7 @@ const aliveStream = location.protocol.startsWith("http") ? new EventSource("/api
     renderAudioBrowser();
     renderAudioSet();
     refreshDrive(false);
+    autoOpenOnExternalDisplay();
   } catch (err) {
     console.error(err);
     setStatus(`Startup error: ${err.message}. See the browser console (F12).`);

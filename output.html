@@ -21,6 +21,7 @@
       if (!msg || typeof msg !== "object") return;
       if (typeof msg.cmd === "string") {
         if (["play", "pause", "restart"].includes(msg.cmd)) videoCommand(screen, msg.cmd);
+        else if (msg.cmd === "fullscreen") tryFullscreen();
         return;
       }
       if (msg.theme) { theme = msg.theme; applyTheme(screen, theme); }
@@ -38,6 +39,50 @@
       : document.documentElement.requestFullscreen();
     document.addEventListener("dblclick", toggleFs);
     document.addEventListener("keydown", (e) => { if (e.key.toLowerCase() === "f") toggleFs(); });
+
+    // Remember where this window is (which monitor, size, fullscreen or not) so the operator window can reopen it
+    // in exactly the same place. When fullscreen, screenX/screenY are the top-left corner of the monitor it is on.
+    const POS_KEY = "presentation-output-pos";
+    function savePosition() {
+      // Do not remember positions on the same monitor as the operator window, or the output would keep reopening there.
+      try {
+        const o = window.opener && window.opener.screen;
+        if (o && Number.isFinite(o.left) && Number.isFinite(window.screen.left) &&
+            o.left === window.screen.left && o.top === window.screen.top) return;
+      } catch (err) { /* opener unreachable: save anyway */ }
+      let prev = {};
+      try { prev = JSON.parse(localStorage.getItem(POS_KEY)) || {}; } catch (err) { /* ignore */ }
+      const fs = Boolean(document.fullscreenElement);
+      const pos = {
+        left: Math.round(window.screenX), top: Math.round(window.screenY),
+        w: fs ? (prev.w || 1280) : Math.round(window.innerWidth),
+        h: fs ? (prev.h || 720) : Math.round(window.innerHeight),
+        fs,
+      };
+      localStorage.setItem(POS_KEY, JSON.stringify(pos));
+    }
+    setInterval(savePosition, 1000);
+    window.addEventListener("pagehide", savePosition);
+
+    // The operator window moves this window onto the external display, then sends the "fullscreen" command.
+    // Fullscreen is entered on whichever display the window is on. Browsers often refuse fullscreen without a
+    // click, so if refused, the first click or key press in this window does it.
+    let fsRetryArmed = false;
+    function tryFullscreen() {
+      if (document.fullscreenElement) return;
+      document.documentElement.requestFullscreen().catch(() => {
+        if (fsRetryArmed) return;
+        fsRetryArmed = true;
+        const retry = () => {
+          document.removeEventListener("pointerdown", retry, true);
+          document.removeEventListener("keydown", retry, true);
+          fsRetryArmed = false;
+          if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch((e) => console.error(e));
+        };
+        document.addEventListener("pointerdown", retry, true);
+        document.addEventListener("keydown", retry, true);
+      });
+    }
   </script>
 </body>
 </html>
