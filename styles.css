@@ -188,6 +188,30 @@ details.custom summary small { font-weight: 400; color: var(--muted); }
   cursor: pointer;
   counter-increment: set;
 }
+.set-list li[draggable="true"] {
+  cursor: grab;
+  user-select: none;
+}
+.set-list li[draggable="true"]:active {
+  cursor: grabbing;
+}
+.set-list li.dragging {
+  opacity: 0.35;
+}
+.set-list li.drag-over-above {
+  border-top: 2px solid var(--accent);
+  padding-top: 4px;
+}
+.set-list li.drag-over-below {
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 4px;
+}
+.set-list li.active.drag-over-above {
+  border-top-color: #fff;
+}
+.set-list li.active.drag-over-below {
+  border-bottom-color: #fff;
+}
 .set-list li::before { content: counter(set) "."; color: var(--muted); min-width: 1.6em; }
 .set-list li.empty { display: block; counter-increment: none; cursor: default; }
 .set-list li.empty::before { content: none; }

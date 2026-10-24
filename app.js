@@ -65,6 +65,9 @@ let audioUrl = "";      // blob: / object URL of that file
 let esvPending = null; // last fetched ESV passage, not yet saved: same shape as a custom slide
 let setlist = [];   // [{ title, author, custom }] references into the song library
 let setIndex = -1;  // position in setlist of the song being shown, -1 if none
+let dragType = "";  // "setlist" | "audioset"
+let dragSourceIndex = -1;
+let dragJustEnded = false;
 
 // ---------- Config & settings ----------
 async function fetchJson(url) {
@@ -542,6 +545,62 @@ function moveInSetlist(i, delta) {
   renderSetlist();
 }
 
+function reorderSetlist(from, to) {
+  const [item] = setlist.splice(from, 1);
+  setlist.splice(to, 0, item);
+  if (setIndex === from) setIndex = to;
+  else if (from < setIndex && to >= setIndex) setIndex -= 1;
+  else if (from > setIndex && to <= setIndex) setIndex += 1;
+  saveSetlist();
+  renderSetlist();
+}
+
+function makeDraggable(li, type, i, getLength, onReorder) {
+  li.draggable = true;
+  li.addEventListener("dragstart", (e) => {
+    if (e.target.closest("button")) { e.preventDefault(); return; }
+    dragType = type;
+    dragSourceIndex = i;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(i));
+    requestAnimationFrame(() => li.classList.add("dragging"));
+  });
+  li.addEventListener("dragover", (e) => {
+    if (dragType !== type) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = li.getBoundingClientRect();
+    const isAfter = e.clientY > rect.top + rect.height / 2;
+    li.classList.toggle("drag-over-above", !isAfter);
+    li.classList.toggle("drag-over-below", isAfter);
+  });
+  li.addEventListener("dragleave", (e) => {
+    if (e.relatedTarget && li.contains(e.relatedTarget)) return;
+    li.classList.remove("drag-over-above", "drag-over-below");
+  });
+  li.addEventListener("dragend", () => {
+    li.classList.remove("dragging", "drag-over-above", "drag-over-below");
+    dragType = "";
+    dragSourceIndex = -1;
+    dragJustEnded = true;
+    setTimeout(() => { dragJustEnded = false; }, 50);
+  });
+  li.addEventListener("drop", (e) => {
+    if (dragType !== type) return;
+    e.preventDefault();
+    const from = dragSourceIndex;
+    const rect = li.getBoundingClientRect();
+    const isAfter = e.clientY > rect.top + rect.height / 2;
+    li.classList.remove("drag-over-above", "drag-over-below");
+    let to = i;
+    if (isAfter && from > to) to = to + 1;
+    else if (!isAfter && from < to) to = to - 1;
+    const len = getLength();
+    if (from === to || from < 0 || to < 0 || from >= len || to >= len) return;
+    onReorder(from, to);
+  });
+}
+
 function playSetlistItem(i, lastSlide = false) {
   const s = findSong(setlist[i]);
   if (!s) return false;
@@ -593,7 +652,8 @@ function renderSetlist() {
       mk("\u2193", "Move down", () => moveInSetlist(i, 1)),
       mk("\u00D7", "Remove from set list", () => removeFromSetlist(i)),
     );
-    li.addEventListener("click", () => playSetlistItem(i));
+    makeDraggable(li, "setlist", i, () => setlist.length, reorderSetlist);
+    li.addEventListener("click", () => { if (!dragJustEnded) playSetlistItem(i); });
     list.append(li);
   });
 }
@@ -1073,6 +1133,16 @@ function moveInAudioSet(i, delta) {
   renderAudioSet();
 }
 
+function reorderAudioSet(from, to) {
+  const [item] = audioSet.splice(from, 1);
+  audioSet.splice(to, 0, item);
+  if (audioIndex === from) audioIndex = to;
+  else if (from < audioIndex && to >= audioIndex) audioIndex -= 1;
+  else if (from > audioIndex && to <= audioIndex) audioIndex += 1;
+  saveAudioSet();
+  renderAudioSet();
+}
+
 function renderAudioSet() {
   const list = $("aset-list");
   list.replaceChildren();
@@ -1104,7 +1174,8 @@ function renderAudioSet() {
       mk("\u2193", "Move down", () => moveInAudioSet(i, 1)),
       mk("\u00D7", "Remove from audio set list", () => removeFromAudioSet(i)),
     );
-    li.addEventListener("click", () => playAudioAt(i));
+    makeDraggable(li, "audioset", i, () => audioSet.length, reorderAudioSet);
+    li.addEventListener("click", () => { if (!dragJustEnded) playAudioAt(i); });
     list.append(li);
   });
 }
