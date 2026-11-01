@@ -1,0 +1,96 @@
+/* ═══════════════════════════════════════════════════════════════
+   TouchSideBar – GNOME Shell Extension Stylesheet
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Sidebar container ────────────────────────────────────────── */
+.touch-sidebar {
+    background-color: rgba(30, 30, 30, 0.92);
+    border-radius: 0 12px 12px 0;   /* rounded right edge when on left */
+    padding: 8px 4px;
+    spacing: 4px;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Mirror radius when sidebar is on the right */
+.touch-sidebar.sidebar-right {
+    border-radius: 12px 0 0 12px;
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Scroll view ──────────────────────────────────────────────── */
+.touch-sidebar-scroll {
+    background-color: transparent;
+}
+
+/* ── Button box ───────────────────────────────────────────────── */
+.touch-sidebar-button-box {
+    spacing: 4px;
+    padding: 4px 2px;
+}
+
+/* ── Action buttons ───────────────────────────────────────────── */
+.touch-sidebar-btn {
+    background-color: rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 10px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    transition-duration: 150ms;
+    min-width: 44px;
+    min-height: 44px; /* WCAG touch target */
+}
+
+.touch-sidebar-btn:hover {
+    background-color: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.touch-sidebar-btn:active {
+    background-color: rgba(255, 255, 255, 0.28);
+    border-color: rgba(255, 255, 255, 0.28);
+    transition-duration: 80ms;
+}
+
+.touch-sidebar-btn:focus {
+    outline: 2px solid rgba(120, 170, 255, 0.8);
+    outline-offset: -2px;
+}
+
+/* ── Icons inside buttons ─────────────────────────────────────── */
+.touch-sidebar-icon {
+    color: rgba(220, 220, 220, 0.95);
+    icon-size: 28px;
+}
+
+/* ── Button label ─────────────────────────────────────────────── */
+.touch-sidebar-btn-label {
+    font-size: 10px;
+    color: rgba(200, 200, 200, 0.8);
+    margin-top: 2px;
+    text-align: center;
+}
+
+/* ── Resize handle ────────────────────────────────────────────── */
+.touch-sidebar-resize-handle {
+    width: 8px;
+    background-color: rgba(255, 255, 255, 0.10);
+    border-radius: 4px;
+    cursor: col-resize;
+    transition-duration: 120ms;
+}
+
+.touch-sidebar-resize-handle:hover {
+    background-color: rgba(120, 170, 255, 0.55);
+}
+
+.touch-sidebar-resize-handle:active {
+    background-color: rgba(120, 170, 255, 0.85);
+}
+
+/* ── Edge swipe zone ──────────────────────────────────────────── */
+/* Invisible by design (opacity:0 set in JS). The style is here   */
+/* only so GNOME doesn't log a missing-class warning.             */
+.touch-sidebar-swipe-zone {
+    background-color: transparent;
+    width: 8px;
+}

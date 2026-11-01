@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.touchsidebar"
+          path="/org/gnome/shell/extensions/touchsidebar/">
+
+    <!-- ── Layout ──────────────────────────────────────────────── -->
+    <key name="sidebar-on-right" type="b">
+      <default>false</default>
+      <summary>Sidebar on the right side</summary>
+      <description>
+        When true the sidebar is placed on the right edge of the primary
+        monitor. When false it is placed on the left edge.
+      </description>
+    </key>
+
+    <key name="sidebar-width" type="i">
+      <default>80</default>
+      <range min="48" max="400"/>
+      <summary>Sidebar width in pixels</summary>
+      <description>Width of the sidebar panel in pixels (48–400).</description>
+    </key>
+
+    <!-- ── Behaviour ───────────────────────────────────────────── -->
+    <key name="auto-hide" type="b">
+      <default>true</default>
+      <summary>Auto-hide when a window overlaps the sidebar</summary>
+      <description>
+        When enabled the sidebar fades out whenever any normal window on the
+        active workspace intersects its screen area, and fades back in when
+        the overlap is gone.
+      </description>
+    </key>
+
+    <!-- ── Actions ─────────────────────────────────────────────── -->
+    <key name="actions" type="s">
+      <default>'[]'</default>
+      <summary>JSON array of sidebar action definitions</summary>
+      <description>
+        A JSON-serialised array of action objects. Each object has:
+          type       – action type identifier (string)
+          label      – button label text (string)
+          icon       – symbolic icon name (string)
+          iconColor  – CSS colour string, e.g. "#ff0000" (string)
+          enabled    – whether the button is shown (boolean)
+          command    – shell command for terminal-command / system-command
+          appId      – .desktop id for app-shortcut actions
+      </description>
+    </key>
+
+  </schema>
+</schemalist>

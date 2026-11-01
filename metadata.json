@@ -1,0 +1,10 @@
+{
+  "name": "TouchSideBar",
+  "description": "A resizable touch-friendly sidebar for GNOME. Toggle it left or right, customize actions (workspaces, overview, fullscreen, power, terminal commands, system commands, copy/paste, app shortcuts), change icons and icon colors, and configure everything from the built-in preferences.",
+  "uuid": "touchsidebar@gnome-extension",
+  "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
+  "version": 1,
+  "url": "",
+  "settings-schema": "org.gnome.shell.extensions.touchsidebar",
+  "gettext-domain": "touchsidebar@gnome-extension"
+}
