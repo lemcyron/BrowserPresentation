@@ -47,6 +47,7 @@ let lastSent = null;  // last message sent to the output window
 let esvKey = "";
 let songSource = "sheet";   // "sheet" | "local"
 let audioSource = "local";  // "local" | "drive"
+let autoPlayAudio = false;  // play the song's matching audio when its first verse goes live
 let driveFolderId = ""; // root Google Drive folder
 let driveFolderBad = false; // the folder box holds something that is not a Drive folder link
 let driveKey = "";
@@ -294,6 +295,7 @@ function updateSourceVisibility() {
 function fillSettingsForm() {
   if ($("song-source")) $("song-source").value = songSource;
   if ($("audio-source")) $("audio-source").value = audioSource;
+  $("auto-play-audio").checked = autoPlayAudio;
   updateSourceVisibility();
   renderLocalSongsInfo();
   renderLocalAudioInfo();
@@ -303,6 +305,7 @@ function fillSettingsForm() {
   $("bg").value = config.theme.background;
   $("fg").value = config.theme.color;
   $("size").value = config.theme.fontSize;
+  $("auto-fit").checked = Boolean(config.theme.autoFit);
   $("align").value = config.theme.align;
   $("uppercase").checked = config.theme.uppercase;
   $("show-title").checked = config.theme.showTitle;
@@ -316,6 +319,7 @@ function fillSettingsForm() {
 function readSettingsForm() {
   if ($("song-source")) songSource = $("song-source").value;
   if ($("audio-source")) audioSource = $("audio-source").value;
+  autoPlayAudio = $("auto-play-audio").checked;
   config.sheet.id = extractSheetId($("sheet-id").value);
   config.sheet.gid = $("sheet-gid").value.trim() || "0";
   linesPerSlide = Math.max(0, Math.min(20, parseInt($("lines").value, 10) || 0));
@@ -323,6 +327,7 @@ function readSettingsForm() {
   t.background = $("bg").value;
   t.color = $("fg").value;
   t.fontSize = Math.max(2, Math.min(20, parseFloat($("size").value) || 7));
+  t.autoFit = $("auto-fit").checked;
   t.align = ["left", "center", "right"].includes($("align").value) ? $("align").value : "center";
   t.uppercase = $("uppercase").checked;
   t.showTitle = $("show-title").checked;
@@ -346,6 +351,7 @@ function persist() {
     linesPerSlide,
     songSource,
     audioSource,
+    autoPlayAudio,
   }));
 }
 
@@ -705,6 +711,46 @@ function selectSong(s, setPos = -1) {
   renderSetlist();
   renderSlideList();
   publish();
+  maybeAutoPlayAudio();
+}
+
+// If enabled, plays the audio track that matches the song title when its first verse (not the title slide) is
+// shown on the output while Live is on. Looks in the audio set list first, then the active audio library.
+function maybeAutoPlayAudio() {
+  if (!autoPlayAudio || !live || blank || !song || song.custom) return;
+  const slide = slides[index];
+  if (!slide || slide.isTitle || slide.video || slide.image) return;
+  const firstVerse = slides.findIndex((x) => !x.isTitle);
+  if (index !== firstVerse) return;
+  const norm = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  const want = norm(song.title);
+  if (!want) return;
+  // Exact match wins; otherwise one name may contain the other (e.g. "01 Amazing Grace" or "Amazing Grace (Live)").
+  const score = (name) => {
+    const n = norm(trackTitle(name));
+    if (!n) return 0;
+    if (n === want) return 3;
+    if (n.length >= 4 && want.length >= 4 && (n.includes(want) || want.includes(n))) return 2;
+    return 0;
+  };
+  const best = (list) => {
+    let top = null, topScore = 0;
+    for (const t of list) { const sc = score(t.name); if (sc > topScore) { top = t; topScore = sc; } }
+    return top;
+  };
+  const inSet = best(audioSet);
+  let i = inSet ? audioSet.indexOf(inSet) : -1;
+  if (i < 0) {
+    const pool = audioSource === "local"
+      ? localAudioTracks.map((t) => ({ id: t.id, name: t.name, local: true }))
+      : driveItems.filter((it) => it.kind !== "folder");
+    const found = best(pool);
+    if (!found) { setStatus(`Auto-play: no audio track matches "${song.title}"`); return; }
+    if (audioSet.length >= MAX_SETLIST) return;
+    addToAudioSet(found);
+    i = audioSet.length - 1;
+  }
+  playAudioAt(i);
 }
 
 function go(delta) {
@@ -716,6 +762,7 @@ function go(delta) {
   blank = false;
   renderSlideList();
   publish();
+  maybeAutoPlayAudio();
 }
 
 function toggleBlank() {
@@ -783,7 +830,7 @@ function renderSlideList() {
     label.textContent = slide.isTitle ? "Title" : `Slide ${i + 1 - (slides[0].isTitle ? 1 : 0)}`;
     const fallback = slide.video ? "(video)" : slide.image ? "(picture)" : "(image only)";
     li.append(label, document.createTextNode(slide.text || fallback));
-    li.addEventListener("click", () => { index = i; blank = false; renderSlideList(); publish(); });
+    li.addEventListener("click", () => { index = i; blank = false; renderSlideList(); publish(); maybeAutoPlayAudio(); });
     list.append(li);
   });
   const active = list.querySelector(".active");
@@ -2096,10 +2143,11 @@ $("save-settings").addEventListener("click", async () => {
   refreshDrive(false);
 });
 
-for (const id of ["bg", "fg", "size", "align", "uppercase", "show-title"]) {
+for (const id of ["bg", "fg", "size", "auto-fit", "align", "uppercase", "show-title", "auto-play-audio"]) {
   $(id).addEventListener("input", () => {
     const hadTitle = config.theme.showTitle;
     readSettingsForm();
+    if (id === "auto-play-audio") persist();
     if (hadTitle !== config.theme.showTitle) rebuildSlides(hadTitle);
     applyTheme(previewEl, currentTheme());
     publish();
@@ -2173,6 +2221,7 @@ const aliveStream = location.protocol.startsWith("http") ? new EventSource("/api
     linesPerSlide = saved.linesPerSlide || 0;
     songSource = saved.songSource || (config.sheet.id ? "sheet" : "local");
     audioSource = saved.audioSource || "local";
+    autoPlayAudio = saved.autoPlayAudio === true;
     loadSetlist();
     loadLocalAudioList();
     loadAudioSet();

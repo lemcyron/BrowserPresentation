@@ -13,6 +13,7 @@
     "color": "#ffffff",
     "fontFamily": "Segoe UI, system-ui, sans-serif",
     "fontSize": 7,
+    "autoFit": false,
     "align": "center",
     "uppercase": false,
     "showTitle": true,

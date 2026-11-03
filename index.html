@@ -20,7 +20,7 @@
 
     <section class="panel" id="library-panel">
         <header class="row">
-          <span>Library (L) <small>(+ or double-click adds to set list)</small></span>
+          <span>Library <small>(+ or double-click adds to set list)</small></span>
           <span class="row-actions">
             <button id="pptx-import-btn" title="Open presentation (.pptx, .ppsx, .odp), export slides as images, and add to set list">+ Presentation</button>
           </span>
@@ -106,7 +106,7 @@
         </div>
         <div class="tools" id="drive-tools">
           <details class="custom" id="drive-panel">
-            <summary id="audio-panel-summary">Audio library (A) <small>(+ adds to set)</small></summary>
+            <summary id="audio-panel-summary">Audio library <small>(+ adds to set)</small></summary>
             <div class="drive-head">
               <span class="drive-path" id="drive-path"></span>
               <button id="drive-refresh" type="button" title="Reload the folder listing">Refresh</button>
@@ -188,6 +188,7 @@
               <option value="drive">Google Drive</option>
             </select>
           </label>
+          <label class="inline" style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-top:8px" title="When the first verse of a song is shown on the output while Live is on, play the audio track whose name matches the song title"><input type="checkbox" id="auto-play-audio" style="width:auto"> Auto-play matching audio with the first verse (Live on)</label>
 
           <div id="local-audio-settings">
             <label class="field-label" for="local-audio-folder" style="margin-top:8px">Local audio folder or files <span>MP3, WAV, OGG, M4A, FLAC</span></label>
@@ -226,6 +227,7 @@
               <input type="number" id="lines" min="0" max="20" value="0">
             </label>
             <label>Font size <input type="number" id="size" min="2" max="20" step="0.5"></label>
+            <label class="inline" title="Uses the largest font size at which the text stays inside the display edges"><input type="checkbox" id="auto-fit"> Auto-fit font size to screen</label>
             <label>Background color <input type="color" id="bg"></label>
             <label>Text colour <input type="color" id="fg"></label>
             <label style="grid-column: 1 / -1">Align

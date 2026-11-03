@@ -11,6 +11,48 @@ export function applyTheme(screen, theme) {
   screen.style.setProperty("--screen-size", String(theme.fontSize));
   screen.style.setProperty("--screen-align", theme.align);
   screen.style.setProperty("--screen-case", theme.uppercase ? "uppercase" : "none");
+  screen._autoFit = Boolean(theme.autoFit);
+  fitText(screen, theme);
+}
+
+// Auto-fit: finds the largest font size (in cqmin units) at which the text still sits inside the screen.
+const FIT_MIN = 1;
+const FIT_MAX = 100;
+
+function fitText(screen, theme) {
+  if (!screen._autoFit || screen._isTitle) {
+    screen.style.setProperty("--screen-size", String(theme.fontSize));
+    return;
+  }
+  const inner = screen.querySelector(".inner");
+  if (!inner || screen._fitting) return;
+  const w = screen.clientWidth, h = screen.clientHeight;
+  if (!w || !h) return; // not visible yet; the resize observer will call again
+  screen._fitting = true;
+  // Stop long words from being broken mid-word while measuring, so a word wider than the screen counts as too big.
+  inner.style.overflowWrap = "normal";
+  const fits = (size) => {
+    screen.style.setProperty("--screen-size", String(size));
+    return inner.offsetHeight <= h && inner.scrollWidth <= w;
+  };
+  let lo = FIT_MIN, hi = FIT_MAX;
+  if (fits(hi)) lo = hi;
+  else {
+    while (hi - lo > 0.25) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid; else hi = mid;
+    }
+  }
+  screen.style.setProperty("--screen-size", String(lo));
+  inner.style.overflowWrap = "";
+  screen._fitting = false;
+}
+
+function watchSize(screen, theme) {
+  screen._theme = theme;
+  if (screen._resizeObserver || typeof ResizeObserver === "undefined") return;
+  screen._resizeObserver = new ResizeObserver(() => fitText(screen, screen._theme));
+  screen._resizeObserver.observe(screen);
 }
 
 const BG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
@@ -175,4 +217,8 @@ export function renderSlide(screen, state, theme, opts = {}) {
     inner.append(document.createTextNode(state.text || ""));
   }
   screen.classList.toggle("blank", Boolean(state.blank));
+  screen._autoFit = Boolean(theme.autoFit);
+  screen._isTitle = Boolean(state.isTitle);
+  watchSize(screen, theme);
+  fitText(screen, theme);
 }
