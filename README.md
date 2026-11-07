@@ -11,8 +11,9 @@ Start it with the script for your system. Each one finds Python, starts the serv
 | Windows | Double-click **`start.bat`** |
 | macOS | Double-click **`start.command`** (or run `./start.sh`). If macOS blocks it, right-click, Open |
 | Linux | Run `./start.sh` in a terminal |
+| Android | Run **`./start-android.sh`** (or `./start.sh`) in Termux / terminal app |
 
-On macOS and Linux the scripts may need to be made executable once: `chmod +x start.sh start.command`. Use another port with `PORT=8080 ./start.sh`. The server stops by itself a few seconds after the presentation page (`index.html`) is closed; closing the output window does not stop it. You can also close the terminal window or press Ctrl+C.
+On macOS, Linux, and Android the scripts may need to be made executable once: `chmod +x start.sh start.command start-android.sh`. Use another port with `PORT=8080 ./start.sh` or `PORT=8080 ./start-android.sh`. The server stops by itself a few seconds after the presentation page (`index.html`) is closed; closing the output window does not stop it. You can also close the terminal window or press Ctrl+C.
 
 To start it manually instead: browsers block ES modules and `fetch` on `file://`, so serve the folder locally, bound to localhost only:
 
@@ -54,6 +55,7 @@ Each song starts with a title slide (song title, with the author underneath if s
 | `drive.js` | Google Drive folder listing and MP3 download |
 | `config.json` | Sheet ID/columns and default theme |
 | `songs.json` | Offline fallback songs |
+| `start-android.sh` | Android / Termux launcher |
 
 ## Custom slides
 
@@ -127,6 +129,8 @@ Each slide ends with the reference and "(ESV)". Passages are saved locally, so t
 ## Layout
 
 Three columns, separated by draggable borders: drag a border left or right to resize the columns (double-click it to reset, or focus it and use the arrow keys, Shift for bigger steps, Home to reset). Sizes are remembered in this browser. The columns are: the **Library** (songs, with the **Custom slide** and **Bible verses** editors underneath) on the left, the **Set list** (with the **Audio set list** and the **Google Drive audio** browser underneath) in the middle, and the controls, preview and slide list for the current song on the right.
+
+**Presider mode:** Toggleable via the **Presider mode** button in the top bar. In Presider mode, the output preview screen, stage controls, "Open output window" button, audio set list, and audio source browser are hidden, and automated audio auto-play is disabled. The column layout dynamically adjusts so the lyrics/verses preview occupies 50% of the window width, while the library and set list columns occupy 25% each.
 
 ## Settings
 

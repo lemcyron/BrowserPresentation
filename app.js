@@ -10,6 +10,7 @@ const AUDIOSET_KEY = "presentation-audioset-v1";
 const CUSTOM_KEY = "presentation-custom-v1";
 const LOCAL_SONGS_KEY = "presentation-local-songs-v1";
 const LOCAL_AUDIO_KEY = "presentation-local-audio-v1";
+const PRESIDER_KEY = "presentation-presider-mode-v1";
 const ESV_KEY_STORAGE = "presentation-esv-key-v1"; // API key entered by the user; never stored in config.json
 const DRIVE_KEY_STORAGE = "presentation-drive-key-v1"; // Google API key for the Drive folder; never stored in config.json
 const ESV_REF_RE = /^[A-Za-z0-9\s:;,.\-\u2013]+$/;
@@ -48,6 +49,7 @@ let esvKey = "";
 let songSource = "sheet";   // "sheet" | "local"
 let audioSource = "local";  // "local" | "drive"
 let autoPlayAudio = false;  // play the song's matching audio when its first verse goes live
+let presiderMode = false;   // hides preview & open-output controls for presiding
 let driveFolderId = ""; // root Google Drive folder
 let driveFolderBad = false; // the folder box holds something that is not a Drive folder link
 let driveKey = "";
@@ -717,7 +719,7 @@ function selectSong(s, setPos = -1) {
 // If enabled, plays the audio track that matches the song title when its first verse (not the title slide) is
 // shown on the output while Live is on. Looks in the audio set list first, then the active audio library.
 function maybeAutoPlayAudio() {
-  if (!autoPlayAudio || !live || blank || !song || song.custom) return;
+  if (presiderMode || !autoPlayAudio || !live || blank || !song || song.custom) return;
   const slide = slides[index];
   if (!slide || slide.isTitle || slide.video || slide.image) return;
   const firstVerse = slides.findIndex((x) => !x.isTitle);
@@ -2072,7 +2074,37 @@ function savedOutputPosition() {
   } catch (err) { /* ignore */ }
   return null;
 }
+const PRESIDER_COLS = { lib: 0.25, set: 0.25 };
+let normalCols = null;
+
+function setPresiderMode(enable) {
+  presiderMode = Boolean(enable);
+  document.body.classList.toggle("presider-mode", presiderMode);
+  const btn = $("presider-toggle");
+  if (btn) {
+    btn.classList.toggle("active", presiderMode);
+    btn.setAttribute("aria-pressed", String(presiderMode));
+  }
+  if (presiderMode) {
+    normalCols = { ...cols };
+    cols = { ...PRESIDER_COLS };
+    applyCols();
+  } else {
+    if (normalCols) {
+      cols = { ...normalCols };
+    } else {
+      loadCols();
+    }
+    applyCols();
+    saveCols();
+  }
+  try {
+    localStorage.setItem(PRESIDER_KEY, String(presiderMode));
+  } catch (err) { /* ignore */ }
+}
+
 function openOutput() {
+  if (presiderMode) return false;
   const extended = window.screen.isExtended;
   const saved = extended ? savedOutputPosition() : null; // a saved external-display position is meaningless when it is unplugged
   // Reopen exactly where the output window was last placed. For a monitor other than this one the browser only honours
@@ -2107,7 +2139,7 @@ function openOutput() {
 // When an external display is attached, open the output automatically. Browsers only allow pop-ups after a click or key press,
 // so if the automatic attempt is blocked, the next click or key press anywhere in this window opens it.
 function autoOpenOnExternalDisplay() {
-  if (!window.screen.isExtended) return;
+  if (presiderMode || !window.screen.isExtended) return;
   loadScreenDetails(); // asks for the permission early so the first Open output click can place the window right away
   if (outputWin && !outputWin.closed) return;
   if (openOutput()) return;
@@ -2123,6 +2155,7 @@ function autoOpenOnExternalDisplay() {
 window.screen.addEventListener?.("change", autoOpenOnExternalDisplay);
 $("reload").addEventListener("click", reloadSheet);
 $("open-output").addEventListener("click", openOutput);
+if ($("presider-toggle")) $("presider-toggle").addEventListener("click", () => setPresiderMode(!presiderMode));
 $("save-settings").addEventListener("click", async () => {
   const prevId = config.sheet.id, prevGid = config.sheet.gid, prevLines = linesPerSlide;
   const hadTitle = config.theme.showTitle;
@@ -2176,7 +2209,7 @@ document.addEventListener("keydown", (e) => {
   if (typing || tag === "AUDIO") return; // the audio player has its own keys
   if (e.ctrlKey || e.metaKey || e.altKey) return; // leave browser shortcuts such as Ctrl+C and Ctrl+L alone
   // Jump straight into a field; preventDefault stops the letter from being typed into it.
-  const jump = { a: ["drive-search", "drive-panel"], l: ["search"], c: ["custom-title", "custom-editor"], b: ["esv-ref", "esv-editor"] }[e.key.toLowerCase()];
+  const jump = { a: presiderMode ? null : ["drive-search", "drive-panel"], l: ["search"], c: ["custom-title", "custom-editor"], b: ["esv-ref", "esv-editor"] }[e.key.toLowerCase()];
   if (jump) { e.preventDefault(); focusField(jump[0], jump[1]); return; }
   if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); go(1); }
   else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); go(-1); }
@@ -2185,7 +2218,7 @@ document.addEventListener("keydown", (e) => {
   else if (e.key.toLowerCase() === "k") sendVideo("toggle");
   else if (e.key.toLowerCase() === "s") sendVideo("restart");
   else if (e.key.toLowerCase() === "r") reloadSheet();
-  else if (e.key.toLowerCase() === "o") openOutput();
+  else if (e.key.toLowerCase() === "o") { if (!presiderMode) openOutput(); }
   else if (e.key.toLowerCase() === "i") setDrawer(true);
   else if (e.key.toLowerCase() === "n") goSong(1);
   else if (e.key.toLowerCase() === "p") goSong(-1);
@@ -2236,6 +2269,10 @@ const aliveStream = location.protocol.startsWith("http") ? new EventSource("/api
     renderAudioBrowser();
     renderAudioSet();
     refreshDrive(false);
+    try {
+      const savedPresider = localStorage.getItem(PRESIDER_KEY);
+      if (savedPresider === "true") setPresiderMode(true);
+    } catch (err) { /* ignore */ }
     autoOpenOnExternalDisplay();
   } catch (err) {
     console.error(err);

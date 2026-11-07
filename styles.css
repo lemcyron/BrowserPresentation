@@ -356,3 +356,16 @@ legend.settings-group-title {
 
 body.output { background: #000; cursor: none; }
 body.output .screen { position: fixed; inset: 0; }
+
+/* ---------- Presider Mode ---------- */
+#presider-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+body.presider-mode #open-output,
+body.presider-mode #preview-panel .stage,
+body.presider-mode #audioset,
+body.presider-mode #drive-tools {
+  display: none !important;
+}

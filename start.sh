@@ -25,9 +25,15 @@ if [ -z "$PY" ]; then
   exit 1
 fi
 
-# Open the default browser (macOS: open, Linux: xdg-open).
+# Open the default browser (macOS: open, Linux: xdg-open, Android/Termux: termux-open-url / am).
 open_browser() {
-  if command -v open >/dev/null 2>&1; then
+  if command -v termux-open-url >/dev/null 2>&1; then
+    termux-open-url "$URL" >/dev/null 2>&1
+  elif command -v termux-open >/dev/null 2>&1; then
+    termux-open "$URL" >/dev/null 2>&1
+  elif command -v am >/dev/null 2>&1; then
+    am start -a android.intent.action.VIEW -d "$URL" >/dev/null 2>&1
+  elif command -v open >/dev/null 2>&1; then
     open "$URL" >/dev/null 2>&1
   elif command -v xdg-open >/dev/null 2>&1; then
     xdg-open "$URL" >/dev/null 2>&1
